@@ -244,6 +244,38 @@ export const Cell: React.FC<CellProps> = ({
     onUpdateSource: updateSource,
   });
 
+  // Wrapper for textarea keydown
+  const handleTextareaKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    handleKeyDown({
+      key: e.key,
+      ctrlKey: e.ctrlKey,
+      metaKey: e.metaKey,
+      selectionStart: e.currentTarget.selectionStart,
+      selectionEnd: e.currentTarget.selectionEnd,
+      value: e.currentTarget.value,
+      preventDefault: () => e.preventDefault(),
+      stopPropagation: () => e.stopPropagation(),
+    });
+  };
+
+  // Wrapper for CodeMirror keydown
+  const handleCodeMirrorKeyDown = (event: KeyboardEvent, view: any) => {
+    const state = view.state;
+    const selection = state.selection.main;
+    handleKeyDown({
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      selectionStart: selection.from,
+      selectionEnd: selection.to,
+      value: state.doc.toString(),
+      preventDefault: () => event.preventDefault(),
+      stopPropagation: () => event.stopPropagation(),
+    });
+  };
+
   const handleFocus = useCallback(() => {
     if (onFocus) {
       onFocus();
@@ -538,7 +570,7 @@ export const Cell: React.FC<CellProps> = ({
                   value={localSource}
                   onChange={handleSourceChange}
                   onBlur={updateSource}
-                  onKeyDown={handleKeyDown}
+                  onKeyDown={handleTextareaKeyDown}
                   placeholder={
                     cell.cellType === "code"
                       ? "Enter your code here..."
@@ -559,13 +591,6 @@ export const Cell: React.FC<CellProps> = ({
             <div className="relative hidden min-h-[1.5rem] sm:block">
               <CodeMirrorEditor
                 value={localSource}
-                placeholder={
-                  cell.cellType === "code"
-                    ? "Enter your code here..."
-                    : cell.cellType === "markdown"
-                      ? "Enter markdown..."
-                      : "Enter raw text..."
-                }
                 language={
                   cell.cellType === "code"
                     ? "python"
@@ -581,11 +606,7 @@ export const Cell: React.FC<CellProps> = ({
                 autoFocus={autoFocus}
                 isMaximized={isMaximized}
                 onFocus={handleFocus}
-                onKeyDown={(e) =>
-                  handleKeyDown(
-                    e as unknown as React.KeyboardEvent<HTMLTextAreaElement>
-                  )
-                }
+                onKeyDown={handleCodeMirrorKeyDown}
                 onBlur={updateSource}
               />
               {/* Mobile maximize/minimize button */}

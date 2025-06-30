@@ -8,6 +8,18 @@ interface CellKeyboardNavigationOptions {
   onDeleteCell?: () => void;
 }
 
+// New event type for keydown
+export interface CellKeyDownEvent {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  selectionStart: number;
+  selectionEnd: number;
+  value: string;
+  preventDefault?: () => void;
+  stopPropagation?: () => void;
+}
+
 export const useCellKeyboardNavigation = ({
   onFocusNext,
   onFocusPrevious,
@@ -16,30 +28,38 @@ export const useCellKeyboardNavigation = ({
   onUpdateSource,
 }: CellKeyboardNavigationOptions) => {
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      const textarea = e.currentTarget;
-      const { selectionStart, selectionEnd, value } = textarea;
+    ({
+      key,
+      ctrlKey = false,
+      metaKey = false,
+      selectionStart,
+      selectionEnd,
+      value,
+      preventDefault = () => {},
+      stopPropagation = () => {},
+    }: CellKeyDownEvent) => {
+      // console.log("e", arguments[0]);
 
       if (
-        e.key === "Backspace" &&
+        key === "Backspace" &&
         selectionStart === selectionEnd &&
         selectionStart === 0
       ) {
-        e.preventDefault();
+        preventDefault();
         onDeleteCell?.();
         onFocusPrevious?.();
         return;
       }
 
       // Handle Home/End keys to prevent page navigation
-      if (e.key === "Home" || e.key === "End") {
-        // Let the textarea handle Home/End internally, but stop propagation to prevent page scroll
-        e.stopPropagation();
+      if (key === "Home" || key === "End") {
+        // Let the editor handle Home/End internally, but stop propagation to prevent page scroll
+        stopPropagation();
         return;
       }
 
       // Handle arrow key navigation between cells
-      if (e.key === "ArrowUp" && selectionStart === selectionEnd) {
+      if (key === "ArrowUp" && selectionStart === selectionEnd) {
         // Check if cursor is at the beginning of the first line
         const beforeCursor = value.substring(0, selectionStart);
         const currentLineIndex = beforeCursor.split("\n").length - 1;
@@ -54,19 +74,19 @@ export const useCellKeyboardNavigation = ({
           if (positionInLine === 0) {
             // At the very beginning - move to previous cell
             if (onFocusPrevious) {
-              e.preventDefault();
+              preventDefault();
               onUpdateSource?.();
               onFocusPrevious();
               return;
             }
           } else {
             // Not at beginning of first line - move to beginning
-            e.preventDefault();
-            textarea.setSelectionRange(0, 0);
+            preventDefault();
+            // setSelectionRange(0, 0) is not available here; the editor should handle this
             return;
           }
         }
-      } else if (e.key === "ArrowDown" && selectionStart === selectionEnd) {
+      } else if (key === "ArrowDown" && selectionStart === selectionEnd) {
         // Check if cursor is at the end of the last line
         const lines = value.split("\n");
         const beforeCursor = value.substring(0, selectionStart);
@@ -83,30 +103,30 @@ export const useCellKeyboardNavigation = ({
           if (positionInLine === currentLine.length) {
             // At the very end - move to next cell
             if (onFocusNext) {
-              e.preventDefault();
+              preventDefault();
               onUpdateSource?.();
               onFocusNext();
               return;
             }
           } else {
             // Not at end of last line - move to end
-            e.preventDefault();
-            textarea.setSelectionRange(value.length, value.length);
+            preventDefault();
+            // setSelectionRange(value.length, value.length) is not available here; the editor should handle this
             return;
           }
         }
       }
 
       // Handle execution shortcuts
-      if (e.key === "Enter" && e.ctrlKey && !e.metaKey) {
+      if (key === "Enter" && ctrlKey && !metaKey) {
         // Ctrl+Enter: Run cell but stay in current cell
-        e.preventDefault();
+        preventDefault();
         onUpdateSource?.();
         onExecute?.();
         // Don't move to next cell - stay in current cell
-      } else if (e.key === "Enter" && e.metaKey && !e.ctrlKey) {
+      } else if (key === "Enter" && metaKey && !ctrlKey) {
         // Cmd+Enter: Run cell and move to next (or create new cell if at end)
-        e.preventDefault();
+        preventDefault();
         onUpdateSource?.();
         onExecute?.();
         if (onFocusNext) {

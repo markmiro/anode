@@ -14,7 +14,7 @@ type CodeMirrorEditorProps = {
   onChange: (e: { target: { value: string } }) => void;
   autoFocus?: boolean;
   isMaximized?: boolean;
-  onKeyDown?: (e: KeyboardEvent) => void;
+  onKeyDown?: (event: KeyboardEvent, view: EditorView) => void;
   onFocus?: () => void;
   onBlur?: () => void;
   placeholder?: string;
@@ -64,7 +64,11 @@ export const CodeMirrorEditor: React.FC<CodeMirrorEditorProps> = ({
           EditorView.domEventHandlers({
             blur: onBlur,
             focus: onFocus,
-            keydown: onKeyDown,
+            keydown: onKeyDown
+              ? (event, view) => {
+                  onKeyDown(event, view);
+                }
+              : undefined,
           }),
           autoFocus ? EditorView.editable.of(true) : [],
         ],
