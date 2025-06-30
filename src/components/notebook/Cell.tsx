@@ -576,7 +576,7 @@ export const Cell: React.FC<CellProps> = ({
                 onChange={(e) =>
                   handleSourceChange({
                     target: { value: e.target.value },
-                  } as React.ChangeEvent<HTMLTextAreaElement>)
+                  })
                 }
                 autoFocus={autoFocus}
                 isMaximized={isMaximized}

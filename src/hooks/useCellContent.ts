@@ -34,12 +34,9 @@ export const useCellContent = ({
     }
   }, [localSource, initialSource, cellId, store, onUpdate]);
 
-  const handleSourceChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setLocalSource(e.target.value);
-    },
-    []
-  );
+  const handleSourceChange = useCallback((e: { target: { value: string } }) => {
+    setLocalSource(e.target.value);
+  }, []);
 
   return {
     localSource,
