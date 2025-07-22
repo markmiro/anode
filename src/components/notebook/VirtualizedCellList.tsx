@@ -198,6 +198,7 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       if (shouldVirtualize) {
+        console.log("handleScroll", e.currentTarget.scrollTop);
         const scrollTop = e.currentTarget.scrollTop;
         requestAnimationFrame(() => {
           setScrollTop(scrollTop);
@@ -274,34 +275,34 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
   ]);
 
   // Track execution count changes to force re-render cells that are off-screen
-  useEffect(() => {
-    if (!shouldVirtualize || !isInitialized) return;
+  // useEffect(() => {
+  //   if (!shouldVirtualize || !isInitialized) return;
 
-    const cellsToForceRender = new Set<string>();
+  //   const cellsToForceRender = new Set<string>();
 
-    memoizedCells.forEach((cell, index) => {
-      const isVisible = index >= visibleRange.start && index < visibleRange.end;
-      const wasForced = forceRenderCells.has(cell.id);
+  //   memoizedCells.forEach((cell, index) => {
+  //     const isVisible = index >= visibleRange.start && index < visibleRange.end;
+  //     const wasForced = forceRenderCells.has(cell.id);
 
-      // If cell is not visible and has execution count, force render it off-screen
-      if (!isVisible && (cell.executionCount ?? 0) > 0) {
-        cellsToForceRender.add(cell.id);
-      }
+  //     // If cell is not visible and has execution count, force render it off-screen
+  //     if (!isVisible && (cell.executionCount ?? 0) > 0) {
+  //       cellsToForceRender.add(cell.id);
+  //     }
 
-      // Keep previously forced cells
-      if (wasForced) {
-        cellsToForceRender.add(cell.id);
-      }
-    });
+  //     // Keep previously forced cells
+  //     if (wasForced) {
+  //       cellsToForceRender.add(cell.id);
+  //     }
+  //   });
 
-    setForceRenderCells(cellsToForceRender);
-  }, [
-    shouldVirtualize,
-    isInitialized,
-    memoizedCells,
-    visibleRange,
-    forceRenderCells,
-  ]);
+  //   setForceRenderCells(cellsToForceRender);
+  // }, [
+  //   shouldVirtualize,
+  //   isInitialized,
+  //   memoizedCells,
+  //   visibleRange,
+  //   forceRenderCells,
+  // ]);
 
   // Measure cell heights when they render
   const measureCellHeight = useCallback(
@@ -472,7 +473,8 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
       <div className="text-muted-foreground bg-background sticky top-0 z-50 text-xs">
         {cells.length} cells, {visibleCells.length} visible, visibleRange:{" "}
         {visibleRange.start} - {visibleRange.end}, initialized:{" "}
-        {isInitialized ? "yes" : "no"}
+        shouldVirtualize: {isInitialized ? "yes" : "no"}, containerHeight:{" "}
+        {containerHeight}
       </div>
 
       {/* Off-screen cells for height measurement */}
