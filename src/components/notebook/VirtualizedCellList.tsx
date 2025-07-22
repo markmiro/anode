@@ -72,9 +72,12 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
   const cellHeights = useRef<Map<string, number>>(new Map());
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [heightsVersion, setHeightsVersion] = useState(0);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [forceRenderCells, setForceRenderCells] = useState<Set<string>>(
+    new Set()
+  );
 
   // Cells are already sorted by database query (orderBy("position", "asc"))
-  // Memoize cells array to prevent unnecessary recalculations
   const memoizedCells = useMemo(() => cells, [cells]);
 
   // Check if we should use virtualization
@@ -93,11 +96,12 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     });
 
     return { positions, totalHeight: cumulativeHeight };
-  }, [memoizedCells, itemHeight, heightsVersion]); // eslint-disable-line react-hooks/exhaustive-deps -- heightsVersion is needed to trigger recalculation when cellHeights ref changes
+  }, [memoizedCells, itemHeight, heightsVersion]);
 
   // Calculate visible range for virtualization using actual heights
   const visibleRange = useMemo(() => {
-    if (!shouldVirtualize) return { start: 0, end: memoizedCells.length };
+    if (!shouldVirtualize || !isInitialized)
+      return { start: 0, end: memoizedCells.length };
 
     // If containerHeight is 0 (initial load), show first few cells as fallback
     if (containerHeight === 0) {
@@ -132,6 +136,7 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     return { start, end };
   }, [
     shouldVirtualize,
+    isInitialized,
     scrollTop,
     containerHeight,
     overscan,
@@ -141,22 +146,56 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
 
   // Get visible cells
   const visibleCells = useMemo(() => {
+    if (!shouldVirtualize || !isInitialized) return memoizedCells;
     return memoizedCells.slice(visibleRange.start, visibleRange.end);
-  }, [memoizedCells, visibleRange.start, visibleRange.end]);
+  }, [
+    shouldVirtualize,
+    isInitialized,
+    memoizedCells,
+    visibleRange.start,
+    visibleRange.end,
+  ]);
 
-  // Use calculated heights instead of estimated
-  const totalHeight = shouldVirtualize ? cellPositions.totalHeight : 0;
+  // Calculate spacers for invisible cells
+  const spacers = useMemo(() => {
+    if (!shouldVirtualize || !isInitialized)
+      return { topSpacer: 0, bottomSpacer: 0 };
 
-  // Calculate offset based on actual cell positions
-  const offsetY =
-    shouldVirtualize && visibleRange.start > 0
-      ? (memoizedCells[visibleRange.start] &&
-          cellPositions.positions.get(memoizedCells[visibleRange.start].id)
-            ?.top) ||
-        0
-      : 0;
+    const { start, end } = visibleRange;
 
-  // Handle scroll events with requestAnimationFrame to prevent layout thrashing
+    // Calculate top spacer height (sum of heights of cells before visible range)
+    let topSpacer = 0;
+    if (start > 0) {
+      for (let i = 0; i < start; i++) {
+        const cell = memoizedCells[i];
+        const height =
+          cellPositions.positions.get(cell.id)?.height || itemHeight;
+        topSpacer += height + 16; // 16px for spacing
+      }
+    }
+
+    // Calculate bottom spacer height (sum of heights of cells after visible range)
+    let bottomSpacer = 0;
+    if (end < memoizedCells.length) {
+      for (let i = end; i < memoizedCells.length; i++) {
+        const cell = memoizedCells[i];
+        const height =
+          cellPositions.positions.get(cell.id)?.height || itemHeight;
+        bottomSpacer += height + 16; // 16px for spacing
+      }
+    }
+
+    return { topSpacer, bottomSpacer };
+  }, [
+    shouldVirtualize,
+    isInitialized,
+    visibleRange,
+    memoizedCells,
+    cellPositions.positions,
+    itemHeight,
+  ]);
+
+  // Handle scroll events
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       if (shouldVirtualize) {
@@ -169,14 +208,14 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     [shouldVirtualize]
   );
 
-  // Observe container height changes with optimized ResizeObserver
+  // Observe container height changes
   useLayoutEffect(() => {
     if (!shouldVirtualize) return;
 
     const container = containerRef.current;
     if (!container) return;
 
-    // Set initial height immediately to prevent 0 height issue
+    // Set initial height immediately
     const initialHeight = container.getBoundingClientRect().height;
     if (initialHeight > 0) {
       setContainerHeight(initialHeight);
@@ -188,7 +227,6 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     }
 
     resizeObserverRef.current = new ResizeObserver((entries) => {
-      // Use requestAnimationFrame to batch layout updates
       requestAnimationFrame(() => {
         for (const entry of entries) {
           setContainerHeight(entry.contentRect.height);
@@ -205,7 +243,7 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     };
   }, [shouldVirtualize]);
 
-  // Auto-scroll to focused cell using actual cell positions
+  // Auto-scroll to focused cell
   useEffect(() => {
     if (!shouldVirtualize || !focusedCellId || !containerRef.current) return;
 
@@ -219,7 +257,6 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
 
     // Check if cell is outside viewport
     if (cellTop < viewportTop || cellBottom > viewportBottom) {
-      // Use requestAnimationFrame for smooth scrolling
       requestAnimationFrame(() => {
         const targetScroll =
           cellTop - containerHeight / 2 + position.height / 2;
@@ -235,6 +272,36 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     cellPositions.positions,
     scrollTop,
     containerHeight,
+  ]);
+
+  // Track execution count changes to force re-render cells that are off-screen
+  useEffect(() => {
+    if (!shouldVirtualize || !isInitialized) return;
+
+    const cellsToForceRender = new Set<string>();
+
+    memoizedCells.forEach((cell, index) => {
+      const isVisible = index >= visibleRange.start && index < visibleRange.end;
+      const wasForced = forceRenderCells.has(cell.id);
+
+      // If cell is not visible and has execution count, force render it off-screen
+      if (!isVisible && (cell.executionCount ?? 0) > 0) {
+        cellsToForceRender.add(cell.id);
+      }
+
+      // Keep previously forced cells
+      if (wasForced) {
+        cellsToForceRender.add(cell.id);
+      }
+    });
+
+    setForceRenderCells(cellsToForceRender);
+  }, [
+    shouldVirtualize,
+    isInitialized,
+    memoizedCells,
+    visibleRange,
+    forceRenderCells,
   ]);
 
   // Measure cell heights when they render
@@ -265,6 +332,24 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     },
     []
   );
+
+  // Initialize height measurements
+  useEffect(() => {
+    if (!shouldVirtualize) {
+      setIsInitialized(true);
+      return;
+    }
+
+    // Wait for all cells to be measured before enabling virtualization
+    const allCellsMeasured = memoizedCells.every(
+      (cell) =>
+        cellHeights.current.has(cell.id) || cellRefs.current.has(cell.id)
+    );
+
+    if (allCellsMeasured && memoizedCells.length > 0) {
+      setIsInitialized(true);
+    }
+  }, [shouldVirtualize, memoizedCells, cellHeights, cellRefs]);
 
   const cellElements = useMemo(
     () =>
@@ -308,6 +393,65 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
     ]
   );
 
+  // Render off-screen cells for height measurement when they have execution updates
+  const offScreenCells = useMemo(() => {
+    if (!shouldVirtualize || !isInitialized) return null;
+
+    const offScreenElements = Array.from(forceRenderCells)
+      .filter((cellId) => !visibleCells.some((cell) => cell.id === cellId))
+      .map((cellId) => {
+        const cell = memoizedCells.find((c) => c.id === cellId);
+        if (!cell) return null;
+
+        return (
+          <div
+            key={`offscreen-${cellId}`}
+            ref={(el) => measureCellHeight(cellId, el)}
+            style={{
+              position: "absolute",
+              top: "-9999px",
+              left: "-9999px",
+              visibility: "hidden",
+              pointerEvents: "none",
+            }}
+          >
+            <ErrorBoundary
+              fallback={<div>Error rendering off-screen cell</div>}
+            >
+              <MemoizedCell
+                cell={cell}
+                onDeleteCell={() => onDeleteCell(cell.id)}
+                onMoveUp={() => onMoveUp(cell.id)}
+                onMoveDown={() => onMoveDown(cell.id)}
+                onFocusNext={() => onFocusNext(cell.id)}
+                onFocusPrevious={() => onFocusPrevious(cell.id)}
+                onFocus={() => onFocus(cell.id)}
+                autoFocus={false}
+                contextSelectionMode={contextSelectionMode}
+              />
+            </ErrorBoundary>
+          </div>
+        );
+      })
+      .filter(Boolean);
+
+    return offScreenElements.length > 0 ? offScreenElements : null;
+  }, [
+    shouldVirtualize,
+    isInitialized,
+    forceRenderCells,
+    visibleCells,
+    memoizedCells,
+    measureCellHeight,
+    contextSelectionMode,
+    onDeleteCell,
+    onMoveUp,
+    onMoveDown,
+    onFocusNext,
+    onFocusPrevious,
+    onFocus,
+  ]);
+
   // If we have fewer cells than threshold, render normally
   if (!shouldVirtualize) {
     return (
@@ -322,36 +466,28 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
       ref={containerRef}
       style={{
         paddingLeft: "1rem",
+        position: "relative",
       }}
       onScroll={handleScroll}
     >
-      {/* Spacer for virtualized offset */}
-      {offsetY > 0 && <div style={{ height: offsetY }} />}
+      <div className="text-muted-foreground bg-background sticky top-0 z-50 text-xs">
+        {cells.length} cells, {visibleCells.length} visible, visibleRange:{" "}
+        {visibleRange.start} - {visibleRange.end}, initialized:{" "}
+        {isInitialized ? "yes" : "no"}
+      </div>
+
+      {/* Off-screen cells for height measurement */}
+      {offScreenCells}
+
+      {/* Top spacer for invisible cells before visible range */}
+      {spacers.topSpacer > 0 && <div style={{ height: spacers.topSpacer }} />}
 
       {/* Visible cells */}
       {cellElements}
 
-      {/* Spacer for remaining content */}
-      {totalHeight -
-        offsetY -
-        visibleCells.reduce((sum, cell) => {
-          const height =
-            cellPositions.positions.get(cell.id)?.height || itemHeight;
-          return sum + height + 16; // 16px for spacing
-        }, 0) >
-        0 && (
-        <div
-          style={{
-            height:
-              totalHeight -
-              offsetY -
-              visibleCells.reduce((sum, cell) => {
-                const height =
-                  cellPositions.positions.get(cell.id)?.height || itemHeight;
-                return sum + height + 16;
-              }, 0),
-          }}
-        />
+      {/* Bottom spacer for invisible cells after visible range */}
+      {spacers.bottomSpacer > 0 && (
+        <div style={{ height: spacers.bottomSpacer }} />
       )}
     </div>
   );
