@@ -493,7 +493,6 @@ export const NotebookViewer: React.FC<NotebookViewerProps> = ({
                   >
                     {(cell, index) => (
                       <>
-                        {index}
                         {index === 0 && (
                           <CellBetweener
                             cell={cell}
