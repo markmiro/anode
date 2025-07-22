@@ -486,10 +486,13 @@ export const NotebookViewer: React.FC<NotebookViewerProps> = ({
             ) : (
               <>
                 <ErrorBoundary fallback={<div>Error rendering cell list</div>}>
+                  {/* <div className="text-muted-foreground bg-background sticky top-0 z-50 text-xs">
+                    {cells.length} cells
+                  </div> */}
                   <VirtualizedCellList
                     cells={cells}
                     focusedCellId={focusedCellId}
-                    threshold={50}
+                    threshold={5}
                   >
                     {(cell, index) => (
                       <>

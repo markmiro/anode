@@ -273,6 +273,10 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
       }}
       onScroll={handleScroll}
     >
+      <div className="text-muted-foreground bg-background sticky top-0 z-50 text-xs">
+        {cells.length} cells, {visibleCells.length} visible, visibleRange:{" "}
+        {visibleRange.start} - {visibleRange.end}
+      </div>
       {/* Spacer for virtualized offset */}
       {offsetY > 0 && <div style={{ height: offsetY }} />}
 
