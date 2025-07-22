@@ -277,6 +277,7 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
       {offsetY > 0 && <div style={{ height: offsetY }} />}
 
       {/* Visible cells */}
+      {cellElements}
 
       {/* Spacer for remaining content */}
       {totalHeight -
