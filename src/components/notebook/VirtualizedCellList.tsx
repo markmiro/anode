@@ -87,12 +87,11 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
   const cellPositions = useMemo(() => {
     const positions = new Map<string, { top: number; height: number }>();
     let cumulativeHeight = 0;
-    const CELL_SPACING = 16; // 1rem spacing between cells
 
     memoizedCells.forEach((cell) => {
       const height = cellHeights.current.get(cell.id) || itemHeight;
       positions.set(cell.id, { top: cumulativeHeight, height });
-      cumulativeHeight += height + CELL_SPACING;
+      cumulativeHeight += height;
     });
 
     return { positions, totalHeight: cumulativeHeight };
@@ -170,7 +169,7 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
         const cell = memoizedCells[i];
         const height =
           cellPositions.positions.get(cell.id)?.height || itemHeight;
-        topSpacer += height + 16; // 16px for spacing
+        topSpacer += height;
       }
     }
 
@@ -181,7 +180,7 @@ export const VirtualizedCellList: React.FC<VirtualizedCellListProps> = ({
         const cell = memoizedCells[i];
         const height =
           cellPositions.positions.get(cell.id)?.height || itemHeight;
-        bottomSpacer += height + 16; // 16px for spacing
+        bottomSpacer += height;
       }
     }
 
