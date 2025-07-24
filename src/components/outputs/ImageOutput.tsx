@@ -1,4 +1,5 @@
 import React from "react";
+import { IframeOutput } from "./IframeOutput";
 
 interface ImageOutputProps {
   src: string;
@@ -18,12 +19,13 @@ export const ImageOutput: React.FC<ImageOutputProps> = ({
 
   return (
     <div className="py-2">
-      <img
+      {/* <img
         src={imageSrc}
         alt={alt}
         className="h-auto max-w-full"
         style={{ objectFit: "contain" }}
-      />
+      /> */}
+      <IframeOutput content={imageSrc} />
     </div>
   );
 };
