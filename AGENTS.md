@@ -1,21 +1,28 @@
 # AI Agent Development Context
 
-This document provides essential context for AI assistants working on the Anode project.
+This document provides essential context for AI assistants working on the Anode
+project.
 
-For current work state and immediate next steps, see `HANDOFF.md` - it focuses on where development was left off and what to work on next.
+Current work state and next steps. What works, what doesn't. Last updated: July 2025.
+
+**Development Workflow**: The user will typically be running the integrated development server with `pnpm dev` in one tab. If you need to check work, run a build and/or lints, tests, typechecks. If the user isn't running the dev environment, tell them how to start it at the base of the repo with `pnpm dev`.
 
 ## Project Overview
 
-Anode is a real-time collaborative notebook system built on LiveStore, an event-sourcing based local-first data synchronization library. The project uses a monorepo structure with TypeScript and pnpm workspaces.
+Anode is a real-time collaborative notebook system built on LiveStore, an
+event-sourcing based local-first data synchronization library.
 
-**Current Status**: Fully operational with zero-latency Python execution and rich output rendering.
+**Current Status**: A robust, real-time collaborative notebook system deployed at https://app.runt.run. It features Python execution with rich outputs and integrated AI capabilities, all built on a unified, event-sourced output system. The system is stable and in production, with ongoing enhancements focused on advanced AI interaction and runtime management.
 
 ## Architecture
 
-- **Shared Schema** (`shared/schema.ts`): LiveStore schema definitions (events, state, materializers) - TypeScript source file directly imported by all packages with full type inference
-- **Web Client** (`@anode/web-client`): React-based web interface
-- **Document Worker** (`@anode/docworker`): Cloudflare Worker for sync backend
-- **Kernel Client** (`@anode/dev-server-kernel-ls-client`): Python execution server (manual start per notebook)
+- **Schema** (`jsr:@runt/schema`): LiveStore schema definitions (events, state,
+  materializers) - Published JSR package imported by all packages with full type
+  inference. Comes via https://github.com/runtimed/runt's deno monorepo
+- **All-in-one Worker**: Unified Cloudflare Worker serving both web client and backend API
+- **Web Client**: React-based web interface (served from the worker)
+- **Document Worker**: Cloudflare Worker for sync backend with artifact storage
+- **Pyodide Runtime Agent**: Python execution client using @runt packages
 
 ## Key Dependencies
 
@@ -26,99 +33,416 @@ Anode is a real-time collaborative notebook system built on LiveStore, an event-
 
 ## Current Working State
 
-### What's Working ✅
-- ✅ **Instant Python execution** with zero polling delays
-- ✅ **Rich output rendering** - HTML tables, SVG plots, markdown, JSON
-- ✅ **Pandas DataFrames** with styled HTML table output
-- ✅ **Matplotlib plots** as crisp SVG vector graphics
-- ✅ **Real-time collaboration** across multiple users  
-- ✅ **AI cell integration** with mock responses and markdown rendering
-- ✅ **Offline-first operation** with sync when connected
-- ✅ **Comprehensive testing** (60 passing tests)
+### What's Actually Working ✅
 
-### Core Architecture Features
+- ✅ **LiveStore integration** - Event-sourcing with real-time collaboration
+- ✅ **Python execution** - Code cells run Python via Pyodide with rich outputs
+  (matplotlib SVG, pandas HTML, IPython.display)
+- ✅ **Real-time collaboration** - Multiple users can edit notebooks
+  simultaneously
+- ✅ **Cell management** - Create, edit, move, delete cells with proper state
+  sync
+- ✅ **Rich output rendering** - Full IPython display support: matplotlib SVG,
+  pandas HTML, colored terminal output
+- ✅ **AI integration** - Full notebook context awareness, sees previous cells
+  and their outputs
+- ✅ **AI tool calling** - AI can create new cells and modify them using
+  function calling
+- ✅ **Context inclusion controls** - Users can exclude cells from AI context
+  with visibility toggles
+- ✅ **Production deployment** - All-in-one worker deployed to Cloudflare at
+  https://app.runt.run
+- ✅ **Authentication** - OIDC OAuth and fallback token system working in
+  production
+- ✅ **Mobile support** - Responsive design with mobile keyboard optimizations
+- ✅ **Offline-first operation** - Works without network, syncs when connected
+- ✅ **Package caching** - Pre-loading scientific stack (numpy, pandas,
+  matplotlib) for faster startup
+- ✅ **AI context with outputs** - AI sees execution results, not just source
+  code, for intelligent assistance with data analysis
+- ✅ **Unified Output System** - Granular, type-safe events for all output types
+- ✅ **Clear output functionality** - `clear_output(wait=True/False)` working properly
+- ✅ **Terminal output grouping** - Consecutive terminal outputs merge naturally
+- ✅ **Error output rendering** - Proper traceback display with JSON error parsing
+- ✅ **All tests passing** - 60/60 tests covering output system
+- ✅ **Artifact service** - Deployed with upload/download endpoints and R2 storage
+- ✅ **Development stability** - Integrated dev server with hot reload stability
+
+### Core Architecture Constraints
+
 - `NOTEBOOK_ID = STORE_ID`: Each notebook gets its own LiveStore database
-- **Reactive execution**: `executionRequested` → `executionAssigned` → `executionStarted` → `executionCompleted`
-- **Zero-latency**: Kernels use reactive `queryDb` subscriptions for instant work detection
-- **Session-based kernels**: Each kernel restart gets unique `sessionId`
+- **Event-sourced state**: All changes flow through LiveStore events
+- **Reactive execution**: `executionRequested` → `executionAssigned` →
+  `executionStarted` → `executionCompleted` events, materialized table is an
+  execution queue
+- **Direct TypeScript schema**: No build step, imports work across packages
+- **Session-based runtimes**: Each runtime restart gets unique `sessionId`
+- **One runtime per notebook**: Each notebook has exactly one active runtime at a
+  time
+- **Artifact storage**: First version backend for external storage (uploads authenticated, downloads currently unauthenticated)
+
+### Runtime-Notebook Relationship
+
+**One Runtime Per Notebook**: Each notebook should have exactly one active runtime
+at any time. Multiple runtimes on the same notebook should only occur during
+transition periods (runtime restart/handoff).
+
+**Runtime Lifecycle**:
+
+- Notebook created → No runtime (user must start one)
+- User starts runtime → Becomes the sole runtime for that notebook
+- Runtime crashes/stops → Notebook has no runtime until user starts new one
+- Runtime restart → Brief overlap during handoff, then old runtime terminates
+
+**Not Yet Implemented**: Automatic runtime orchestration, graceful handoffs,
+runtime health monitoring. Currently manual runtime startup creates potential for
+multiple runtimes during transitions.
 
 ## Development Commands
 
 ```bash
-# Start core services (web + sync)
-pnpm dev
+# Setup
+pnpm install  # Install dependencies
+cp .env.example .env  # Copy environment configuration
+cp .dev.vars.example .dev.vars
 
-# Start kernel for specific notebook (manual)
-NOTEBOOK_ID=notebook-123-abc pnpm dev:kernel
+# Start development (single server with integrated backend)
+pnpm dev      # All-in-one server at http://localhost:5173
 
-# Utilities
-pnpm reset-storage  # Clear all local storage
+# Start runtime (get command from notebook UI)
+# Runtime command is now dynamic via VITE_RUNTIME_COMMAND environment variable
+# Get runtime command from notebook UI, then:
+NOTEBOOK_ID=notebook-id-from-ui pnpm dev:runtime
+
+# Check work
+pnpm check    # Type check, lint, and format check
+pnpm test     # Run 60+ tests
+pnpm build    # Build for production
 ```
 
-## Next Phase: Real AI Integration
+## Schema Linking for Development
 
-**Priority Focus**: Replace mock AI responses with real API integration
+The `@runt/schema` package provides the shared types and events between Anode and Runt. The linking method depends on your development phase:
 
-### Immediate Goals
-- **Real AI API Integration** - OpenAI, Anthropic, local model calls
-- **Automatic Kernel Management** - One-click notebook startup
-- **Authentication System** - Google OAuth with proper session management
-- **Code Completions** - LSP + kernel-based suggestions
-- **SQL Cell Implementation** - Real database connections
+### Production (JSR Package)
+
+```json
+"@runt/schema": "jsr:^0.8.0"
+```
+
+Use this for stable releases and production deployments.
+
+### Testing PR Changes (GitHub Reference)
+
+```json
+"@runt/schema": "github:runtimed/runt#1d52f9e51b9f28e81e366a7053d1e5fa6164c390&path:/packages/schema"
+```
+
+Use this when testing changes from a merged PR in the Runt repository. Replace the commit hash with the specific commit you want to test.
+
+### Local Development (File Link)
+
+```json
+"@runt/schema": "file:../runt/packages/schema"
+```
+
+Use this when developing locally with both Anode and Runt repositories side-by-side.
+
+### Switching Between Modes
+
+1. **Update `package.json`** with the appropriate schema reference
+2. **Run `pnpm install`** to update dependencies
+3. **Restart your development server** (`pnpm dev`)
+
+**Important**: Always ensure both repositories are using compatible schema versions. Type errors usually indicate schema mismatches.
+
+## Current Priorities
+
+**Current Focus**: Enhancing AI capabilities and improving runtime management.
+
+### Key Development Areas
+
+1.  **Enhanced AI Tool Calling**: AI can now create, modify, and execute cells.
+    - Function calling infrastructure is in place.
+    - AI can create new cells (`create_cell`).
+    - AI can modify existing cells (`modify_cell`).
+    - AI can execute code cells (`execute_cell`).
+    - _Next Step_: Add comprehensive JSDoc and parameter validation for tool calls.
+2.  **User Confirmation Flows**: Implementing UI for confirming AI-initiated actions.
+    - _Next Step_: Design and implement confirmation dialogs, categorize risks, integrate with LiveStore events, and allow safe operations to bypass confirmation.
+3.  **User-Attributed Runtime Agents ("Bring Your Own Compute")**: Enabling users to run standalone runtime agents with API tokens.
+    - _Next Step_: Develop API token system, token management UI, and documentation for user-owned runtimes.
+4.  **Automated Runtime Management**: Reducing manual friction in starting and managing runtimes.
+    - _Next Step_: Design runtime orchestration, implement one-click startup, and add health monitoring.
+
+**Foundation Complete**: The core output system provides type safety, performance, and streaming capabilities, forming a solid base for these enhancements.
 
 ## Important Considerations
 
 ### Schema Design
-- **Direct TypeScript imports**: `shared/schema.ts` provides zero-build-step imports with full type inference across all packages
-- **Single source of truth**: No compiled artifacts needed - TypeScript handles type checking from source
-- **No timestamp fields** - LiveStore handles timing automatically
+
+- **JSR schema package**: `jsr:@runt/schema` provides zero-build-step imports
+  with type inference across all packages
+
+### ⚠️ CRITICAL: Materializer Determinism Requirements
+
+LiveStore requires all materializers to be **pure functions without side
+effects**. Avoid non-deterministic operations (like `Date()` calls) that could
+produce different results across clients. Using `ctx.query()` for deterministic
+data access is fine.
+
+**What caused the bug:**
+
+```typescript
+// ❌ WRONG - This causes LiveStore.UnexpectedError materializer hash mismatch
+"v1.ExecutionCompleted": ({ queueId }, ctx) => {
+  const queueEntries = ctx.query(
+    tables.executionQueue.select().where({ id: queueId }).limit(1)
+  );
+  // ... rest of materializer
+}
+```
+
+**Correct approach:**
+
+```typescript
+// ✅ CORRECT - All needed data in event payload
+"v1.ExecutionCompleted": ({ queueId, cellId, status }) => [
+  tables.executionQueue.update({
+    status: status === "success" ? "completed" : "failed"
+  }).where({ id: queueId }),
+  tables.cells.update({
+    executionState: status === "success" ? "completed" : "error"
+  }).where({ id: cellId }),
+]
+```
+
+**Fixed commits for reference:**
+
+- `6e0fb4f`: Fixed ExecutionCompleted/ExecutionCancelled materializers
+- `a1bf20d`: Fixed ExecutionStarted materializer
+
+**Rule**: Materializers must be deterministic and reproducible. Avoid
+non-deterministic operations, but using `ctx.query()` for deterministic data
+lookups is acceptable.
+
+### Use top-level `useQuery` rather than `store.useQuery`
+
+```typescript
+// ❌ WRONG - This causes a react compiler ESLint error
+import { useStore } from "@livestore/react";
+// ...
+const { store } = useStore();
+const titleMetadata = store.useQuery(
+  queryDb(tables.notebookMetadata.select().where({ key: "title" }).limit(1))
+);
+```
+
+```typescript
+// ✅ CORRECT - `useQuery` comes from an import
+import { useQuery } from "@livestore/react";
+// ...
+const titleMetadata = useQuery(
+  queryDb(tables.notebookMetadata.select().where({ key: "title" }).limit(1))
+);
+```
 
 ### Local-First Architecture
+
 - All data operations happen locally first
 - Events synced across clients via document worker
 - SQLite provides local reactive state per notebook
-- Network connectivity optional
+- Network connectivity optional, but is essential for runtime access
 
 ### Code Style
+
 - Prefer functional programming patterns (Effect library)
 - Event sourcing over direct state mutations
 - Reactive queries over imperative data fetching
 - TypeScript strict mode enabled
+- Granular, type-safe events with clear schemas
+- Prefer specific event types over complex discriminated unions
 
 ## File Structure
+
 ```
 anode/
-├── shared/
-│   └── schema.ts         # LiveStore schema - TypeScript source directly imported by all packages
-├── packages/
-│   ├── web-client/       # React web application
-│   ├── docworker/        # Cloudflare Worker sync backend
-│   └── dev-server-kernel-ls-client/  # Python kernel server
-├── package.json          # Root workspace configuration
-└── pnpm-workspace.yaml   # Dependency catalog
+├── .git/
+├── .github/
+├── .zed/
+├── dist/
+├── docs/
+│   ├── proposals/
+│   ├── README.md
+│   ├── TESTING.md
+│   ├── ai-context-visibility.md
+│   ├── ui-design.md
+│   └── ui-enhancements-demo.md
+├── examples/
+│   └── ai-context-demo.md
+├── node_modules/
+├── public/
+├── src/
+│   ├── auth/
+│   ├── backend/
+│   │   ├── artifact.ts
+│   │   ├── auth.ts
+│   │   ├── entry.ts
+│   │   ├── sync.ts
+│   │   └── types.ts
+│   ├── components/
+│   │   ├── auth/
+│   │   ├── notebook/
+│   │   │   ├── AiCell.tsx
+│   │   │   ├── AnsiOutput.tsx
+│   │   │   ├── Cell.tsx
+│   │   │   ├── NotebookViewer.tsx
+│   │   │   ├── RichOutput.css
+│   │   │   ├── RichOutput.tsx
+│   │   │   └── SqlCell.tsx
+│   │   └── ui/
+│   ├── lib/
+│   │   └── utils.ts
+│   ├── sync/
+│   │   └── sync.ts
+│   ├── types/
+│   ├── util/
+│   ├── Root.tsx
+│   ├── index.css
+│   ├── livestore.worker.ts
+│   └── main.tsx
+├── test/
+├── .gitignore
+├── AGENTS.md
+├── CONTRIBUTING.md
+├── Caddyfile.example
+├── DEPLOYMENT.md
+├── LICENSE
+├── README.md
+├── ROADMAP.md
+├── components.json
+├── index.html
+├── package.json
+├── pnpm-lock.yaml
+├── schema.ts
+├── tsconfig.json
+├── tsconfig.node.json
+├── tsconfig.test.json
+├── vite.config.ts
+├── vitest.config.ts
+└── wrangler.toml
 ```
+
+**Deployment (Cloudflare):**
+
+- All-in-one Worker: `https://app.runt.run` (unified worker serving both backend and frontend)
+- D1: Production data persistence
+- R2: Artifact storage for large outputs
+- Secrets: Auth tokens, API keys
+- Runtime: Python execution via `@runt` packages
 
 ## Notes for AI Assistants
 
-### Current State - Ready for AI Integration
-- **Zero-latency execution** with reactive architecture
-- **Rich output rendering** completed - HTML tables, SVG plots, markdown
-- **Mock AI responses** working - ready for real API integration
-- **Zero-build schema architecture** - Direct TypeScript imports eliminate build complexity
-- **Production-ready foundation** for AI-native collaborative notebooks
+**Current Status - Production Deployment Working**
+
+- **LiveStore foundation** - Real-time collaborative editing deployed and stable
+- **Full Python execution** - Rich outputs working (matplotlib, pandas,
+  IPython.display)
+- **Complete AI integration** - Full notebook context awareness, can create and
+  modify cells
+- **Production deployment** - Cloudflare Pages + Workers with authentication
 
 ### Key Development Insights
-- **Reactive architecture breakthrough** - Zero-latency execution achieved
-- **Unified execution system** - AI cells work exactly like code cells through execution queue
-- **Event sourcing** provides excellent debugging and audit capabilities  
-- **Proper event deferral** resolves LiveStore execution segment conflicts
-- **Focus-based UI patterns** create clean, keyboard-driven workflows
+
+- **Deployment Ready**: The full stack is working on Cloudflare infrastructure.
+- **Rich outputs working**: Complete IPython display compatibility with matplotlib and pandas.
+- **AI context awareness**: AI sees the full notebook state, including outputs.
+
+### Immediate Technical Goals
+
+- **User-attributed runtimes**: Implement API token system for "Bring Your Own Compute".
+- **Automated runtime orchestration**: Develop production runtime provisioning.
 
 ### Communication Style
-- Use authentic developer voice - uncertainty is fine, just be explicit
-- Focus on AI ↔ Python ↔ User interaction goals as primary differentiator
-- Emphasize production readiness and Jupyter-quality output rendering
 
-## Important Note on Timestamps
+- Be direct about what works and what doesn't
+- Focus on helping developers solve actual problems
+- Use code examples over lengthy explanations
+- Keep commit messages short and factual
+- State facts without marketing language
+- Say "this is a prototype" or "this part needs work" when true
+- Always bring a towel
 
-**Do NOT use manual timestamps in code or events.** LiveStore automatically handles all timing through its event sourcing system. Focus development on features and architecture rather than timestamp management.
+## Development Workflow Notes
+
+- **User Environment**: The user will typically have:
+  - Integrated server running in one tab (`pnpm dev`) - includes both frontend and backend
+  - Python runtime available via `pnpm dev:runtime` (uses @runt JSR packages,
+    command customizable via VITE_RUNTIME_COMMAND)
+
+**Checking Work**: To verify changes, run:
+
+```bash
+pnpm build           # Build all packages
+pnpm lint            # Check code style
+pnpm test            # Run test suite (60/60 passing)
+pnpm type-check      # TypeScript validation
+pnpm check           # Run all checks at once
+```
+
+**If Dev Environment Not Running**: To start the development environment:
+
+```bash
+# Setup environment
+pnpm install         # Install dependencies
+cp .env.example .env # Copy environment configuration
+cp .dev.vars.example .dev.vars
+
+# Start development (single server with integrated backend)
+pnpm dev             # Web client + backend at http://localhost:5173
+
+# For Python runtime (get NOTEBOOK_ID from UI, then run):
+NOTEBOOK_ID=your-notebook-id pnpm dev:runtime
+```
+
+**Development Stability**: The integrated development server is stable with hot reload for most changes. Environment file changes are ignored to prevent crashes. If the server crashes, restart with `pnpm dev`.
+
+**For detailed development priorities, see [ROADMAP.md](./ROADMAP.md)**
+
+## Communication Guidelines for AI Assistants
+
+### Senior Engineering Collaboration
+
+- **Write for staff/principal engineers**: Assume deep technical knowledge
+- **Be concise and precise**: Remove redundant explanations
+- **Lead with facts**: State what is, not what could be
+- **Show working code**: Demonstrate solutions with actual implementations
+- **Identify root causes**: Address underlying issues, not symptoms
+- **Use technical terminology correctly**: Precision matters in technical
+  communication
+
+### Code Review Standards
+
+- **Reference specific lines/functions**: Use exact file paths and line numbers
+- **Explain the "why"**: Technical rationale behind changes
+- **Highlight trade-offs**: Acknowledge design decisions and their implications
+- **Suggest concrete improvements**: Actionable recommendations with code
+  examples
+- **Maintain consistency**: Follow existing patterns and conventions
+
+### Problem-Solving Approach
+
+- **Start with diagnosis**: Understand the system state before proposing
+  solutions
+- **Use systematic debugging**: Add logging, isolate components, test hypotheses
+- **Verify assumptions**: Check actual behavior against expected behavior
+- **Consider edge cases**: Think through failure modes and boundary conditions
+- **Document findings**: Leave clear breadcrumbs for future developers
+
+### Technical Communication
+
+- **Use standard terminology**: Stick to established technical vocabulary
+- **Be specific with versions**: Reference exact package versions, commit hashes
+- **Include reproduction steps**: Clear instructions for recreating issues
+- **Separate concerns**: Distinguish between bugs, features, and technical debt
+- **Quantify impact**: Use metrics and benchmarks where relevant

@@ -1,194 +1,354 @@
 # Anode Development Roadmap
 
-**Current Status**: Fully operational reactive architecture with zero-latency Python execution ✅
+**Vision**: A real-time collaborative notebook system enabling seamless AI ↔
+Python ↔ User interactions through local-first architecture.
 
-This roadmap outlines the next phases of development for Anode, building on the working reactive architecture to achieve Jupyter parity while maintaining the real-time collaborative advantages of LiveStore.
+## Foundation Complete ✅
 
-## Phase 1: Production Foundation
+### Core Architecture
 
-### 1.1 Authentication & Authorization 🔐
-**Priority: HIGH** - Critical for multi-user deployment and kernel-document isolation
+- **LiveStore event-sourcing** - Real-time collaborative state management
+- **Cell management** - Create, edit, move, delete with proper state sync
+- **"Python" execution** - Rich outputs: matplotlib SVG, pandas HTML,
+  IPython.display
+- **Pseudo-Production deployment** - Cloudflare Pages + Workers with OIDC
+  OAuth authentication
 
-**Current State**: Hardcoded `'insecure-token-change-me'` tokens
-**Target**: JWT-based auth with kernel session isolation
+### What Users Can Do Today
 
-- [ ] **Google OAuth Integration**
-  - Replace hardcoded auth with Google OAuth flow
-  - Token exchange service: Google token → Anode JWT
-  - Basic user management (profile, preferences)
+- Create and edit notebooks collaboratively in real-time at
+  https://anode.pages.dev
+- Execute Python code with rich outputs (matplotlib SVG plots, pandas HTML
+  tables, colored terminal)
+- Use AI cells with full notebook context awareness (sees previous cells and
+  their outputs)
+- Control what context AI sees with visibility toggles
+- Have AI create new cells using OpenAI function calling
+- Navigate cells with keyboard shortcuts and mobile-optimized interface
+- Work offline and sync when connected through local-first architecture
+- Package caching for faster Python startup (numpy, pandas, matplotlib
+  pre-loaded)
 
-- [ ] **Kernel Security Model**
-  - Kernels get session-specific JWTs
-  - Document worker validates kernel permissions
-  - Kernel isolation (can only access assigned notebook)
+## Immediate Priorities (Next 2-3 Weeks)
 
-### 1.2 Kernel Lifecycle Management 🐍
-**Priority: HIGH** - Manual kernel management creates friction
+### 1. Enhanced AI Tool Calling
 
-**Current State**: Manual `NOTEBOOK_ID=x pnpm dev:kernel` startup
-**Target**: Automatic kernel lifecycle with session management
+**Goal**: Expand AI capabilities beyond just creating cells
 
-- [ ] **Kernel Session Service**
-  - `/api/kernels/ensure-session` endpoint
-  - Session state tracking
-  - Kernel status: `claiming` → `provisioning` → `starting` → `ready` → `busy` → `shutdown`
+**Current State**: AI can only create cells via `create_cell` function
+**Target**: AI can modify existing cells and execute code
 
-- [ ] **Enhanced Document Worker**
-  - Kernel session validation in sync hooks
-  - Integration with kernel service APIs
+**Implementation Tasks**:
 
-### 1.3 Demo Deployment 🚀
-**Priority: MEDIUM** - Showcases capabilities
+- [x] **Function calling infrastructure** - OpenAI function calling working
+- [x] **Cell creation tools** - AI can create new cells with `create_cell` tool
+- [x] **Cell modification tools** - Add `modify_cell(cellId, content)` function
+      to NOTEBOOK_TOOLS
+- [x] **Code execution tools** - Add `execute_cell(cellId)` function to
+      NOTEBOOK_TOOLS
+- [ ] **Parameter validation** - Add comprehensive JSDoc and parameter
+      validation
 
-- [ ] **CloudFlare Pages Deployment**
-  - Web client static hosting
-  - Demo environment configuration
-  - Basic rate limiting
+**Acceptance Criteria**:
 
-- [ ] **Demo Kernel Strategy**
-  - Session-isolated kernel instances
-  - Consider browser-based Pyodide as fallback
+- AI can modify existing cell content when requested
+- AI can execute cells and see results
+- All tool calls work reliably with proper error handling
 
-## Phase 2: Jupyter Parity
+### 2. User Confirmation Flows
 
-### 2.1 Enhanced Python Kernel 🐍
-**Priority: HIGH** - Core execution improvements
+**Goal**: Safe execution of AI-initiated actions
 
-- [ ] **Package Management**
-  - Pre-installed scientific stack (numpy, pandas, matplotlib)
-  - Dynamic package installation
-  - Environment isolation between notebooks
+**Current State**: No user confirmation for AI actions **Target**: UI dialogs
+for confirming destructive operations
 
-- [ ] **Rich Output Support**
-  - Plot rendering (matplotlib, plotly)
-  - DataFrame HTML display
-  - Image and media handling
+**Implementation Tasks**:
 
-- [ ] **Code Completions & IntelliSense**
-  - LSP integration for Python (Pylsp/Pyright)
-  - Kernel-based completions (runtime introspection)
-  - Context-aware suggestions from notebook variables
-  - Auto-imports and documentation on hover
-  - Error highlighting and diagnostics
+- [ ] **Confirmation dialog UI** - Design and implement confirmation dialog
+      component
+- [ ] **Risk categorization** - Implement risk-based confirmation (safe vs
+      destructive operations)
+- [ ] **LiveStore events** - Add confirmation events to schema
+- [ ] **Web client integration** - Wire up confirmation flows in web client
+- [ ] **Bypass for safe operations** - Allow safe operations to skip
+      confirmation
 
-### 2.2 Notebook UX Improvements 📝
-**Priority: HIGH** - Fluid notebook interaction experience
+**Acceptance Criteria**:
 
-**Current Issues**: Click-to-edit model, no keyboard navigation, heavy card UI breaks notebook flow
-**Target**: Jupyter-like fluid interaction without complex mode switching
+- Users can approve/reject AI tool calls before execution
+- Clear indication of what the AI wants to do
+- Safe operations (create_cell) can bypass confirmation
+- Destructive operations (modify_cell, execute_cell) require confirmation
 
-- [ ] **Fluid Cell Navigation**
-  - Down arrow at bottom of cell moves to next cell
-  - Up arrow at top of cell moves to previous cell
-  - Smooth focus transitions between cells
-  - No separate command/edit modes
+### 3. User-Attributed Runtime Agents ("Bring Your Own Compute")
 
-- [ ] **Execution Flow Improvements**
-  - Shift+Enter: Run cell and move to next
-  - Ctrl+Enter: Run cell and stay in current
-  - Simple execution count display (below code, not `In[]` format)
-  - Clear execution status feedback
+**Goal**: Enable users to run standalone runtime agents with API tokens
 
-- [ ] **Streamlined Cell Interface**
-  - Reduce heavy card styling for cleaner notebook feel
-  - Better visual focus states (subtle borders, not heavy cards)
-  - Context-sensitive controls (appear when cell selected)
-  - Simplified cell type switching
+**Current State**: All runtimes use shared authentication **Target**: Users can
+attach runtimes with their own API tokens
 
-- [ ] **Responsive Cell Controls**
-  - Always-visible minimal controls (not hover-only)
-  - Better mobile interaction support
-  - Cleaner visual hierarchy between cells
+**Implementation Tasks**:
 
-### 2.3 AI Cell Architecture 🤖
-**Priority: HIGH** - Enable AI <> Python <> User interactions
+- [ ] **API token system** - Generate user-specific tokens for runtime
+      authentication
+- [ ] **Token management UI** - Users can create, view, revoke tokens
+- [ ] **Standalone runtime agents** - Runtimes authenticate with user tokens
+      instead of shared auth
+- [ ] **Runtime attribution** - Show which user's compute is running the runtime
+- [ ] **Documentation** - Clear instructions for running user-owned runtime agents
 
-**Design Vision**: AI cells function like kernel adapters
-- Input: User prompt + notebook context
-- Output: AI response (markdown, code, suggestions)
-- Execution flow: `aiExecutionRequested` → `aiExecutionStarted` → `aiExecutionCompleted`
+**Benefits**:
 
-- [ ] **AI Kernel Adapter**
-  - Similar to Python kernel but calls LLM APIs
-  - Notebook context extraction (previous cells, outputs)
-  - Response streaming
+- Removes shared authentication dependency
+- Enables production scaling with user-owned compute
+- Clear attribution of resource usage
 
-- [ ] **Context Management**
-  - Intelligent context window management
-  - Cell dependency tracking
+### 4. Automated Runtime Management
 
-### 2.4 SQL Cell Integration 🗄️
-**Priority: MEDIUM** - SQL analysis on Python data
+**Goal**: Remove manual `NOTEBOOK_ID=xyz pnpm dev:runtime` friction
 
-**Design Vision**: SQL cells work in tandem with Python kernel
-- SQL source gets translated to Python pandas/DuckDB execution
-- Results flow back through Python kernel execution queue
-- Shared data context between SQL and Python cells
+**Technical Challenges**:
 
-- [ ] **SQL → Python Translation**
-  - DuckDB integration
-  - Database connection management through Python
-  - Result set handling and display
+- Runtime spawning in browser environment
+- Cross-platform compatibility (Windows, macOS, Linux)
+- Security considerations for runtime execution
+- Resource management and cleanup
 
-## Phase 3: Collaboration & Polish
+**Implementation Tasks**:
 
-### 3.1 Performance & Scale 📈
-**Priority: MEDIUM** - Handle larger notebooks
+- [ ] **Runtime orchestration architecture** - Design runtime spawning mechanism
+- [ ] **One-click runtime startup** - Create "Start Runtime" button in notebook UI
+- [ ] **Auto-spawning Runtime** - One-click notebook startup
+- [ ] **Runtime health monitoring** - Detect failures and restart automatically
+- [ ] **Better status indicators** - Clear feedback on runtime state
 
-- [ ] **Large Output Handling**
-  - Offload images/media (avoid base64 in notebook)
-  - Efficient binary data storage
-  - Output compression
+## Short-term Goals (Next 1-2 Months)
 
-- [ ] **Memory Management**
-  - Kernel resource limits
-  - Garbage collection strategies
+### Rich Output System Enhancement
 
-### 3.2 Real-Time Collaboration 👥
-**Priority: LOW** - Build on LiveStore's existing sync
+**Goal**: Polish the already working rich output system
 
-**Current State**: Basic LiveStore sync working
-**Target**: Enhanced collaborative features
+- [x] **Matplotlib SVG rendering** - Plots display correctly
+- [x] **Pandas DataFrame HTML** - Rich table formatting working
+- [x] **IPython.display functions** - HTML(), Markdown(), JSON() support working
+- [x] **Stream output consolidation** - Clean colored text block handling
+- [ ] **Output performance optimization** - Faster rendering of large outputs
+- [ ] **Output management** - Clear outputs, output collapsing, copy
+      functionality
 
-- [ ] **Basic Presence**
-  - Active user list per notebook
-  - Simple "User X is editing" indicators
+### Enhanced Python Experience
 
-- [ ] **Conflict Resolution**
-  - Leverage LiveStore's event sourcing
-  - Execution queue ordering (already working)
+- [ ] **Package management** - Pre-install scientific stack (numpy, pandas,
+      matplotlib)
+- [ ] **Code completion** - LSP integration for intelligent suggestions
+- [ ] **Variable inspection** - Runtime introspection and debugging
+- [ ] **Execution improvements** - Better progress indicators and cancellation
 
-## Phase 4: Developer Experience
+### Enhanced AI Integration
 
-### 4.1 Import/Export 📁
-- [ ] **Jupyter Compatibility**
-  - Import/export .ipynb files
-  - Maintain notebook format compatibility
+- [x] **Full context awareness** - AI sees previous cells and their outputs
+- [x] **Context controls** - Users can hide cells from AI context
+- [ ] **Streaming responses** - Word-by-word AI output for better UX
+- [ ] **Multi-turn conversations** - Context-aware AI conversations
+- [ ] **Smart code generation** - AI suggests code based on notebook state
+- [ ] **Execution tools** - AI can run code cells and see results
 
-### 4.2 API & Extensions 🛠️
-- [ ] **REST API**
-  - Notebook management
-  - Execution control
-  - Output retrieval
+## Medium-term Vision (3-6 Months)
 
-- [ ] **Custom Cell Types**
-  - Framework for new cell types (GraphQL, etc.)
-  - Cell type registry
+### Model Context Protocol (MCP) Integration
 
-## Current Strengths to Preserve
+**Goal**: Extensible AI tooling through Python ecosystem
 
-- ✅ **Reactive Architecture**: Zero-latency execution via LiveStore `queryDb`
-- ✅ **Event Sourcing**: Clean audit trail and state management
-- ✅ **Local-First**: Offline capability and fast interactions
-- ✅ **Type Safety**: End-to-end TypeScript with Effect
+- [ ] **MCP Registry Architecture** - Discover and manage MCP providers
+- [ ] **Python Runtime Integration** - Use Python introspection to find MCP
+      modules
+- [ ] **Tool Routing System** - Seamlessly route between notebook and MCP tools
+- [ ] **Provider Lifecycle Management** - Connect, disconnect, monitor MCP
+      providers
+- [ ] **Unified Tool Interface** - Single AI interface for all available tools
 
-## Technical Debt to Address
+### Arbitrary Runtime Connectivity
 
-- [ ] Manual kernel lifecycle management
-- [ ] Hardcoded authentication
-- [ ] Limited error handling and recovery
-- [ ] Missing production monitoring
+**Goal**: Support diverse Python execution environments beyond Pyodide
+
+- [ ] **ZeroMQ Integration** - Connect Runtime Agent to external Python kernels via ZeroMQ
+- [ ] **Containerized Runtimes** - Support arbitrary Python environments (e.g., Docker)
+- [ ] **Runtime Discovery** - Mechanism to discover and connect to available runtimes
+
+### Document-level Access Control (RBAC)
+
+**Goal**: Implement granular permissions for notebooks
+
+- [ ] **Role-Based Permissions** - Define roles (e.g., owner, editor, viewer)
+- [ ] **Per-Document ACLs** - Assign permissions to users/groups on individual notebooks
+- [ ] **UI for Permissions Management** - Interface to manage document access
+
+### SQL Cell Implementation
+
+- [ ] **DuckDB integration** - SQL execution via Runtime bridge
+- [ ] **Database connections** - Connect to external databases
+- [ ] **Result visualization** - Rich display of query results
+- [ ] **Python interop** - Share data between SQL and Python cells
+
+### Advanced Collaboration
+
+- [ ] **User presence** - See who's actively editing
+- [ ] **Collaborative cursors** - Real-time editing indicators
+- [ ] **Comment system** - Discuss code and results inline
+- [ ] **Version control** - Leverage event-sourcing for notebook history
+
+### Interactive Widgets
+
+- [ ] **IPython widgets support** - Interactive UI components
+- [ ] **Real-time streaming outputs** - Progress bars, live updates
+- [ ] **Collaborative widgets** - Shared interactive components
+- [ ] **Custom widget framework** - Build domain-specific tools
+
+## Long-term Aspirations (6+ Months)
+
+### Production Readiness
+
+- [x] **Authentication system** - OIDC OAuth working in production
+- [x] **Production deployment** - Cloudflare Pages + Workers deployment working
+- [ ] **Multi-tenant deployment** - Isolated environments per organization
+- [ ] **Performance optimization** - Handle large notebooks and datasets
+- [ ] **Monitoring and analytics** - Usage tracking and performance metrics
+
+### Advanced Features
+
+- [ ] **Jupyter compatibility** - Import/export .ipynb files seamlessly
+- [ ] **Custom cell types** - Extensible framework for specialized cells
+- [ ] **Advanced visualizations** - 3D plots, interactive charts
+- [ ] **External integrations** - Connect to data sources, APIs, services
+- [ ] **MCP Marketplace** - Discover and install MCP providers
+- [ ] **AI Agent Workflows** - Multi-step AI-driven notebook automation
+
+### User Experience Polish
+
+- [ ] **Keyboard navigation improvements** - Jupyter-like arrow key behavior
+- [ ] **Better error messages** - Clear feedback for all failure modes
+- [ ] **Execution indicators** - Visual feedback during code execution
+- [ ] **Cell output management** - Clear outputs, output collapsing
+- [ ] **Recently Opened Notebooks** - Display a list of recently accessed notebooks for quick navigation
+
+### Developer Ecosystem
+
+- [ ] **Extension API** - Third-party cell types and integrations
+- [ ] **Template system** - Reusable notebook templates
+- [ ] **Package marketplace** - Share and discover notebook components
+- [ ] **Self-hosted deployments** - Enterprise on-premises installations
+
+## Technical Debt & Infrastructure
+
+### Code Quality
+
+- [x] **Solid testing foundation** - 58 passing tests with good integration coverage
+- [ ] **Re-enable skipped tests** - Some Pyodide integration tests disabled due
+      to import issues
+- [ ] **Browser automation testing** - Add Playwright/Cypress for E2E testing
+- [ ] **Error handling** - Robust recovery from all failure scenarios
+- [ ] **Performance profiling** - Identify and fix bottlenecks for large
+      notebooks
+- [ ] **Documentation** - API docs, architecture guides, contribution guidelines
+
+### Infrastructure
+
+- [ ] **CI/CD pipeline** - Automated testing and deployment
+- [ ] **Security audit** - Code execution sandboxing, input validation
+- [ ] **Monitoring setup** - Application metrics and alerting
+- [ ] **Backup strategies** - Data protection and recovery procedures
+
+## Implementation Strategy
+
+### Phase-Gate Approach
+
+1. **Phase 1 Complete**: Before moving to Phase 2, validate all enhanced AI tool
+   calling works
+2. **Phase 2 Complete**: Before Phase 3, ensure user-attributed runtimes work
+   reliably
+3. **Continuous**: Infrastructure improvements happen alongside feature
+   development
+
+### Risk Mitigation
+
+- **Backward Compatibility**: All changes maintain existing functionality
+- **Feature Flags**: New features can be disabled if issues arise
+- **Comprehensive Testing**: Each phase includes thorough testing
+- **User Feedback**: Regular validation with real users
+
+### Resource Allocation
+
+- **60% Feature Development**: Enhanced AI, user runtimes, automation
+- **30% Infrastructure**: Testing, documentation, performance
+- **10% Maintenance**: Bug fixes, dependency updates
+
+## Success Metrics
+
+### User Experience
+
+- Runtime startup time: < 10 seconds (currently ~30s with manual process)
+- Python execution latency: < 1 second for simple operations
+- AI tool execution time: < 3 seconds for cell creation/modification
+- Collaboration sync delay: < 100ms
+- Rich output rendering: < 2 seconds for complex plots
+- Mobile usability: Full editing capability on phone/tablet
+- Error recovery: Clear feedback and resolution paths
+
+### Technical Performance
+
+- Test suite execution: < 30 seconds (currently ~2s)
+- Zero-latency execution: < 100ms for runtime work detection
+- Memory efficiency: Handle 100+ cell notebooks without issues
+- Collaboration latency: < 100ms for real-time updates
+
+### Developer Experience
+
+- Setup time for new contributors: < 5 minutes
+- Hot reload time: < 1 second
+- TypeScript compilation: Zero errors, strict mode
+- Documentation coverage: All APIs documented
+
+### Reliability
+
+- Runtime uptime: > 99% during active use
+- Data loss incidents: Zero tolerance
+- Recovery time from failures: < 30 seconds
+- Cross-browser compatibility: Chrome, Firefox, Safari
+
+## Architecture Principles
+
+### Preserve Core Strengths
+
+- **Event-sourcing foundation** - Never lose user work, perfect audit trails
+- **Local-first operation** - Work offline, sync when connected
+- **Real-time collaboration** - Multiple users, zero conflicts (proven in
+  production)
+- **Type safety** - End-to-end TypeScript with Effect (zero type errors)
+- **Reactive architecture** - Zero-latency execution detection via subscriptions
+- **Production reliability** - Fixed critical materializer side effects bug
+  (#34)
+
+### Guide Development Decisions
+
+- **AI as development partner** - AI actively participates in notebook creation
+  and editing
+- **User workflow first** - Optimize for data science and literate computing
+- **Zero-latency interactions** - Immediate feedback for all operations
+- **Minimal friction** - Remove setup complexity and manual steps
+- **Progressive enhancement** - Core functionality works, advanced features
+  optional
+- **Extensible tooling** - MCP integration enables unlimited AI capabilities
 
 ---
 
-*This roadmap focuses on achieving Jupyter parity while leveraging Anode's unique real-time collaborative architecture. Priorities will evolve based on user feedback and adoption.*
+This roadmap reflects the reality that Anode is already a working production
+system. The focus is on expansion and enhancement rather than proving basic
+functionality works. Core collaborative editing, Python execution with rich
+outputs, and AI integration are all validated and deployed.
+
+**Key Insight**: The foundation is solid - LiveStore event-sourcing, reactive
+architecture, and comprehensive testing provide a reliable base for building
+advanced features.
+
+**Next Update**: This roadmap will be updated monthly based on progress and user
+feedback.

@@ -1,24 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStorePromise, queryDb } from "@livestore/livestore";
 import { makeAdapter } from "@livestore/adapter-node";
-import { events, tables, schema } from "../../shared/schema.js";
+import { events, tables, schema } from "../../src/schema.js";
 import {
-  createTestStoreId,
-  createTestSessionId,
-  waitFor,
   cleanupResources,
+  createTestSessionId,
+  createTestStoreId,
+  waitFor,
 } from "../setup.js";
 
 describe("Reactivity Debugging", () => {
   let store: any;
   let storeId: string;
   let sessionId: string;
-  let kernelId: string;
+  let runtimeId: string;
 
   beforeEach(async () => {
     storeId = createTestStoreId();
     sessionId = createTestSessionId();
-    kernelId = `kernel-${Date.now()}`;
+    runtimeId = `runtime-${Date.now()}`;
 
     const adapter = makeAdapter({
       storage: { type: "in-memory" },
@@ -44,8 +44,8 @@ describe("Reactivity Debugging", () => {
       const assignedWork$ = queryDb(
         tables.executionQueue
           .select()
-          .where({ status: "assigned", assignedKernelSession: sessionId }),
-        { label: "assignedWork" },
+          .where({ assignedRuntimeSession: sessionId }),
+        { label: "assignedWork" }
       );
 
       const subscription = store.subscribe(assignedWork$, {
@@ -68,7 +68,7 @@ describe("Reactivity Debugging", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -77,15 +77,14 @@ describe("Reactivity Debugging", () => {
           cellId,
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       store.commit(
         events.executionAssigned({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          runtimeSessionId: sessionId,
+        })
       );
 
       // Wait for initial updates
@@ -99,8 +98,10 @@ describe("Reactivity Debugging", () => {
       store.commit(
         events.executionStarted({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          cellId,
+          runtimeSessionId: sessionId,
+          startedAt: new Date(),
+        })
       );
 
       // Wait a bit to ensure no additional calls
@@ -117,16 +118,16 @@ describe("Reactivity Debugging", () => {
         tables.executionQueue
           .select()
           .where({ status: "pending" })
-          .orderBy("priority", "desc")
+          .orderBy("id", "desc")
           .limit(5),
-        { label: "pendingWork" },
+        { label: "pendingWork" }
       );
 
       // Create multiple subscriptions to the same query
       const subscriptions = callbacks.map((callback) =>
         store.subscribe(pendingWork$, {
           onUpdate: callback,
-        }),
+        })
       );
 
       // Add data to trigger updates
@@ -136,7 +137,7 @@ describe("Reactivity Debugging", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -145,8 +146,7 @@ describe("Reactivity Debugging", () => {
           cellId: "multi-sub-cell",
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       // All callbacks should receive updates
@@ -155,7 +155,7 @@ describe("Reactivity Debugging", () => {
       callbacks.forEach((callback) => {
         expect(callback.mock.calls.length).toBeGreaterThan(0);
         expect(
-          callback.mock.calls[callback.mock.calls.length - 1][0],
+          callback.mock.calls[callback.mock.calls.length - 1][0]
         ).toHaveLength(1);
       });
 
@@ -168,8 +168,11 @@ describe("Reactivity Debugging", () => {
       store.commit(
         events.executionCompleted({
           queueId: "multi-sub-queue",
+          cellId: "multi-sub-cell",
           status: "success",
-        }),
+          completedAt: new Date(),
+          executionDurationMs: 100,
+        })
       );
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -180,7 +183,7 @@ describe("Reactivity Debugging", () => {
       });
     });
 
-    it.skip("should handle subscription errors without affecting other subscriptions", async () => {
+    it("should handle subscription errors without affecting other subscriptions", async () => {
       const goodCallback = vi.fn();
       const errorCallback = vi.fn();
 
@@ -191,7 +194,7 @@ describe("Reactivity Debugging", () => {
       // Note: With strict typing, we simulate runtime errors differently
       const badQuery$ = queryDb(
         tables.cells.select().where({ id: "non-existent-cell-id" }),
-        { label: "badQuery" },
+        { label: "badQuery" }
       );
 
       let goodSubscription: any;
@@ -219,7 +222,7 @@ describe("Reactivity Debugging", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       // Good callback should work even if bad query fails
@@ -263,8 +266,8 @@ describe("Reactivity Debugging", () => {
               cellType: "code",
               position: i,
               createdBy: "test-user",
-            }),
-          ),
+            })
+          )
         );
 
         if (i > 0) {
@@ -273,8 +276,8 @@ describe("Reactivity Debugging", () => {
               events.cellMoved({
                 id: `rapid-${i - 1}`,
                 newPosition: i * 10,
-              }),
-            ),
+              })
+            )
           );
         }
 
@@ -283,8 +286,8 @@ describe("Reactivity Debugging", () => {
             store.commit(
               events.cellDeleted({
                 id: cellId,
-              }),
-            ),
+              })
+            )
           );
         }
       }
@@ -301,7 +304,7 @@ describe("Reactivity Debugging", () => {
       // Check that timestamps are monotonically increasing
       for (let i = 1; i < stateSnapshots.length; i++) {
         expect(stateSnapshots[i].timestamp).toBeGreaterThanOrEqual(
-          stateSnapshots[i - 1].timestamp,
+          stateSnapshots[i - 1].timestamp
         );
       }
 
@@ -315,37 +318,37 @@ describe("Reactivity Debugging", () => {
 
     it("should handle query dependencies correctly", async () => {
       const updates: { [key: string]: any[] } = {
-        kernelSessions: [],
+        runtimeSessions: [],
         assignedWork: [],
         pendingWork: [],
       };
 
       // Create dependent queries
-      const kernelSessions$ = queryDb(
-        tables.kernelSessions.select().where({ isActive: true }),
-        { label: "activeKernelSessions" },
+      const runtimeSessions$ = queryDb(
+        tables.runtimeSessions.select().where({ isActive: true }),
+        { label: "activeRuntimeSessions" }
       );
 
       const assignedWork$ = queryDb(
         tables.executionQueue
           .select()
-          .where({ status: "assigned", assignedKernelSession: sessionId }),
-        { label: "assignedWork" },
+          .where({ status: "assigned", assignedRuntimeSession: sessionId }),
+        { label: "assignedWork" }
       );
 
       const pendingWork$ = queryDb(
         tables.executionQueue
           .select()
           .where({ status: "pending" })
-          .orderBy("priority", "desc"),
-        { label: "pendingWork" },
+          .orderBy("id", "desc"),
+        { label: "pendingWork" }
       );
 
       // Subscribe to all queries
       const subscriptions = [
-        store.subscribe(kernelSessions$, {
+        store.subscribe(runtimeSessions$, {
           onUpdate: (data: any) =>
-            updates.kernelSessions.push({ timestamp: Date.now(), data }),
+            updates.runtimeSessions.push({ timestamp: Date.now(), data }),
         }),
         store.subscribe(assignedWork$, {
           onUpdate: (data: any) =>
@@ -359,18 +362,18 @@ describe("Reactivity Debugging", () => {
 
       // Trigger a sequence of related events
 
-      // 1. Start kernel session
+      // 1. Start runtime session
       store.commit(
-        events.kernelSessionStarted({
+        events.runtimeSessionStarted({
           sessionId,
-          kernelId,
-          kernelType: "python3",
+          runtimeId: runtimeId,
+          runtimeType: "python3",
           capabilities: {
             canExecuteCode: true,
             canExecuteSql: false,
             canExecuteAi: false,
           },
-        }),
+        })
       );
 
       // 2. Create cell and request execution
@@ -383,7 +386,7 @@ describe("Reactivity Debugging", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -392,41 +395,40 @@ describe("Reactivity Debugging", () => {
           cellId,
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       // 3. Assign execution
       store.commit(
         events.executionAssigned({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          runtimeSessionId: sessionId,
+        })
       );
 
       // Wait for all updates
       await waitFor(
         () =>
-          updates.kernelSessions.length > 0 &&
+          updates.runtimeSessions.length > 0 &&
           updates.assignedWork.length > 0 &&
-          updates.pendingWork.length > 0,
+          updates.pendingWork.length > 0
       );
 
       // Verify all queries received updates
-      expect(updates.kernelSessions.length).toBeGreaterThan(0);
+      expect(updates.runtimeSessions.length).toBeGreaterThan(0);
       expect(updates.assignedWork.length).toBeGreaterThan(0);
       expect(updates.pendingWork.length).toBeGreaterThan(0);
 
       // Verify final states are consistent
-      const finalKernelSessions =
-        updates.kernelSessions[updates.kernelSessions.length - 1].data;
+      const finalRuntimeSessions =
+        updates.runtimeSessions[updates.runtimeSessions.length - 1].data;
       const finalAssignedWork =
         updates.assignedWork[updates.assignedWork.length - 1].data;
 
-      expect(finalKernelSessions).toHaveLength(1);
-      expect(finalKernelSessions[0].sessionId).toBe(sessionId);
+      expect(finalRuntimeSessions).toHaveLength(1);
+      expect(finalRuntimeSessions[0].sessionId).toBe(sessionId);
       expect(finalAssignedWork).toHaveLength(1);
-      expect(finalAssignedWork[0].assignedKernelSession).toBe(sessionId);
+      expect(finalAssignedWork[0].assignedRuntimeSession).toBe(sessionId);
 
       // Clean up
       subscriptions.forEach((unsub) => unsub());
@@ -434,7 +436,7 @@ describe("Reactivity Debugging", () => {
   });
 
   describe("Memory and Performance", () => {
-    it.skip("should not leak memory with frequent subscription changes", async () => {
+    it("should not leak memory with frequent subscription changes", async () => {
       const subscriptionCycles = 10;
       const operationsPerCycle = 5;
 
@@ -445,7 +447,7 @@ describe("Reactivity Debugging", () => {
         for (let i = 0; i < 3; i++) {
           const query$ = queryDb(
             tables.cells.select().where({ position: { op: ">=", value: i } }),
-            { label: `memoryTestQuery-${cycle}-${i}` },
+            { label: `memoryTestQuery-${cycle}-${i}` }
           );
 
           subscriptions.push(
@@ -453,7 +455,7 @@ describe("Reactivity Debugging", () => {
               onUpdate: () => {
                 // Minimal processing to avoid interfering with memory test
               },
-            }),
+            })
           );
         }
 
@@ -467,14 +469,14 @@ describe("Reactivity Debugging", () => {
               cellType: "code",
               position: op,
               createdBy: "test-user",
-            }),
+            })
           );
 
           if (op % 2 === 0) {
             store.commit(
               events.cellDeleted({
                 id: cellId,
-              }),
+              })
             );
           }
         }
@@ -494,7 +496,7 @@ describe("Reactivity Debugging", () => {
       const updateCounts: number[] = [];
       const startTime = Date.now();
 
-      const highFreqQuery$ = queryDb(tables.kernelSessions.select(), {
+      const highFreqQuery$ = queryDb(tables.runtimeSessions.select(), {
         label: "highFrequencyQuery",
       });
 
@@ -511,26 +513,26 @@ describe("Reactivity Debugging", () => {
       for (let i = 0; i < updateCount; i++) {
         setTimeout(() => {
           store.commit(
-            events.kernelSessionHeartbeat({
+            events.runtimeSessionStatusChanged({
               sessionId: `high-freq-session-${i % 3}`, // Cycle through 3 sessions
               status: i % 2 === 0 ? "ready" : "busy",
-            }),
+            })
           );
         }, i * heartbeatInterval);
       }
 
-      // Start a kernel session first
+      // Start a runtime session first
       store.commit(
-        events.kernelSessionStarted({
+        events.runtimeSessionStarted({
           sessionId: "high-freq-session-0",
-          kernelId: "high-freq-kernel",
-          kernelType: "python3",
+          runtimeId: "high-freq-runtime",
+          runtimeType: "python3",
           capabilities: {
             canExecuteCode: true,
             canExecuteSql: false,
             canExecuteAi: false,
           },
-        }),
+        })
       );
 
       // Wait for updates to complete
@@ -573,7 +575,7 @@ describe("Reactivity Debugging", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       await waitFor(() => successfulUpdates.length > 0);
@@ -586,7 +588,7 @@ describe("Reactivity Debugging", () => {
           cellType: "code",
           position: 1,
           createdBy: "test-user",
-        }),
+        })
       );
 
       await waitFor(() => successfulUpdates.length > 1);
@@ -617,7 +619,7 @@ describe("Reactivity Debugging", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       await waitFor(() => updates.length > 0);

@@ -1,5 +1,6 @@
-import { beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { Effect, TestContext } from "effect";
+import "@testing-library/jest-dom";
 
 // Global test setup
 beforeAll(async () => {
@@ -9,6 +10,11 @@ beforeAll(async () => {
   process.env.NODE_ENV = "test";
   process.env.LIVESTORE_SYNC_URL = "ws://localhost:8787";
   process.env.AUTH_TOKEN = "test-token";
+  process.env.VITE_AUTH_URI = "https://auth.example.com";
+  process.env.VITE_AUTH_CLIENT_ID = "test-client-id";
+  process.env.VITE_AUTH_REDIRECT_URI = "http://localhost:3000/callback";
+  process.env.VITE_LIVESTORE_SYNC_URL = "ws://localhost:8787";
+  process.env.VITE_RUNTIME_COMMAND = "";
 
   // Suppress console.log in tests unless explicitly needed
   if (!process.env.DEBUG_TESTS) {
@@ -48,7 +54,7 @@ export const createMockStore = () => ({
   },
 });
 
-export const createMockKernel = () => ({
+export const createMockRuntime = () => ({
   initialize: vi.fn(),
   execute: vi.fn(),
   terminate: vi.fn(),
@@ -86,15 +92,15 @@ export const waitFor = (condition: () => boolean, timeout = 5000) => {
 export const collectEvents = <T>(
   observable: any,
   count: number,
-  timeout = 1000,
+  timeout = 1000
 ): Promise<T[]> => {
   return new Promise((resolve, reject) => {
     const events: T[] = [];
     const timer = setTimeout(() => {
       reject(
         new Error(
-          `Timeout: collected ${events.length}/${count} events after ${timeout}ms`,
-        ),
+          `Timeout: collected ${events.length}/${count} events after ${timeout}ms`
+        )
       );
     }, timeout);
 
@@ -128,7 +134,7 @@ export const createInMemoryAdapter = async () => {
 // Error testing utilities
 export const expectError = async <T>(
   promise: Promise<T>,
-  expectedMessage?: string,
+  expectedMessage?: string
 ) => {
   try {
     await promise;
@@ -136,7 +142,7 @@ export const expectError = async <T>(
   } catch (error) {
     if (expectedMessage && !error.message.includes(expectedMessage)) {
       throw new Error(
-        `Expected error message to contain "${expectedMessage}", but got: ${error.message}`,
+        `Expected error message to contain "${expectedMessage}", but got: ${error.message}`
       );
     }
     return error;
@@ -154,6 +160,6 @@ export const cleanupResources = (
       } catch (error) {
         console.warn("Error during cleanup:", error);
       }
-    }),
+    })
   );
 };

@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createStorePromise, queryDb } from "@livestore/livestore";
 import { makeAdapter } from "@livestore/adapter-node";
-import { events, tables, schema } from "../../shared/schema.js";
+import { events, tables, schema } from "../../src/schema.js";
 import {
-  createTestStoreId,
-  createTestSessionId,
-  waitFor,
   cleanupResources,
+  createTestSessionId,
+  createTestStoreId,
+  waitFor,
 } from "../setup.js";
 
 // Mock Pyodide for integration tests
@@ -22,16 +22,16 @@ vi.mock("pyodide", () => ({
   loadPyodide: vi.fn(() => Promise.resolve(mockPyodide)),
 }));
 
-describe.skip("End-to-End Execution Flow", () => {
+describe("End-to-End Execution Flow", () => {
   let store: any;
   let storeId: string;
   let sessionId: string;
-  let kernelId: string;
+  let runtimeId: string;
 
   beforeEach(async () => {
     storeId = createTestStoreId();
     sessionId = createTestSessionId();
-    kernelId = `kernel-${Date.now()}`;
+    runtimeId = `runtime-${Date.now()}`;
 
     const adapter = makeAdapter({
       storage: { type: "in-memory" },
@@ -62,8 +62,8 @@ describe.skip("End-to-End Execution Flow", () => {
 
       // Track state changes
       const stateChanges: string[] = [];
-      const notebookQuery$ = queryDb(tables.notebook.select(), {
-        label: "notebook",
+      const metadataQuery$ = queryDb(tables.notebookMetadata.select(), {
+        label: "metadata",
       });
       const cellsQuery$ = queryDb(tables.cells.select(), { label: "cells" });
       const queueQuery$ = queryDb(tables.executionQueue.select(), {
@@ -73,8 +73,8 @@ describe.skip("End-to-End Execution Flow", () => {
         label: "outputs",
       });
 
-      store.subscribe(notebookQuery$, {
-        onUpdate: () => stateChanges.push("notebook"),
+      store.subscribe(metadataQuery$, {
+        onUpdate: () => stateChanges.push("metadata"),
       });
       store.subscribe(cellsQuery$, {
         onUpdate: () => stateChanges.push("cells"),
@@ -92,10 +92,10 @@ describe.skip("End-to-End Execution Flow", () => {
           id: notebookId,
           title: "Integration Test Notebook",
           ownerId: "test-user",
-        }),
+        })
       );
 
-      await waitFor(() => stateChanges.includes("notebook"));
+      await waitFor(() => stateChanges.includes("metadata"));
 
       // Step 2: Create a code cell
       store.commit(
@@ -104,7 +104,7 @@ describe.skip("End-to-End Execution Flow", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -112,23 +112,23 @@ describe.skip("End-to-End Execution Flow", () => {
           id: cellId,
           source: 'print("Hello from integration test!")',
           modifiedBy: "test-user",
-        }),
+        })
       );
 
       await waitFor(() => stateChanges.includes("cells"));
 
-      // Step 3: Start kernel session
+      // Step 3: Start runtime session
       store.commit(
-        events.kernelSessionStarted({
+        events.runtimeSessionStarted({
           sessionId,
-          kernelId,
-          kernelType: "python3",
+          runtimeId,
+          runtimeType: "python3",
           capabilities: {
             canExecuteCode: true,
             canExecuteSql: false,
             canExecuteAi: false,
           },
-        }),
+        })
       );
 
       // Step 4: Request execution
@@ -138,45 +138,50 @@ describe.skip("End-to-End Execution Flow", () => {
           cellId,
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       await waitFor(() => stateChanges.includes("queue"));
 
-      // Step 5: Assign execution to kernel
+      // Step 5: Assign execution to runtime
       store.commit(
         events.executionAssigned({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          runtimeSessionId: sessionId,
+        })
       );
 
       // Step 6: Start execution
       store.commit(
         events.executionStarted({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          cellId,
+          runtimeSessionId: sessionId,
+          startedAt: new Date(),
+        })
       );
 
       // Step 7: Clear previous outputs
       store.commit(
         events.cellOutputsCleared({
           cellId,
-          clearedBy: kernelId,
-        }),
+          clearedBy: runtimeId,
+          wait: false,
+        })
       );
 
       // Step 8: Add execution output
       store.commit(
-        events.cellOutputAdded({
+        events.terminalOutputAdded({
           id: outputId,
           cellId,
-          outputType: "stream",
-          data: { name: "stdout", text: "Hello from integration test!\n" },
+          content: {
+            type: "inline",
+            data: "Hello from integration test!\n",
+          },
+          streamName: "stdout",
           position: 0,
-        }),
+        })
       );
 
       await waitFor(() => stateChanges.includes("outputs"));
@@ -185,14 +190,18 @@ describe.skip("End-to-End Execution Flow", () => {
       store.commit(
         events.executionCompleted({
           queueId,
+          cellId,
           status: "success",
-        }),
+          completedAt: new Date(),
+          executionDurationMs: 150,
+        })
       );
 
       // Verify final state
-      const notebook = store.query(tables.notebook.select())[0];
-      expect(notebook.id).toBe(notebookId);
-      expect(notebook.title).toBe("Integration Test Notebook");
+      const metadata = store.query(tables.notebookMetadata.select());
+      const notebookTitle =
+        metadata.find((m) => m.key === "title")?.value ?? "Untitled";
+      expect(notebookTitle).toBe("Integration Test Notebook");
 
       const cells = store.query(tables.cells.select());
       expect(cells).toHaveLength(1);
@@ -206,10 +215,9 @@ describe.skip("End-to-End Execution Flow", () => {
       const outputs = store.query(tables.outputs.select());
       expect(outputs).toHaveLength(1);
       expect(outputs[0].cellId).toBe(cellId);
-      expect(outputs[0].data).toEqual({
-        name: "stdout",
-        text: "Hello from integration test!\n",
-      });
+      expect(outputs[0].outputType).toBe("terminal");
+      expect(outputs[0].streamName).toBe("stdout");
+      expect(outputs[0].data).toBe("Hello from integration test!\n");
     });
 
     it("should handle execution errors gracefully", async () => {
@@ -222,7 +230,7 @@ describe.skip("End-to-End Execution Flow", () => {
           id: storeId,
           title: "Error Test Notebook",
           ownerId: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -231,7 +239,7 @@ describe.skip("End-to-End Execution Flow", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -239,21 +247,21 @@ describe.skip("End-to-End Execution Flow", () => {
           id: cellId,
           source: 'raise ValueError("Test error")',
           modifiedBy: "test-user",
-        }),
+        })
       );
 
-      // Start kernel and request execution
+      // Start runtime and request execution
       store.commit(
-        events.kernelSessionStarted({
+        events.runtimeSessionStarted({
           sessionId,
-          kernelId,
-          kernelType: "python3",
+          runtimeId,
+          runtimeType: "python3",
           capabilities: {
             canExecuteCode: true,
             canExecuteSql: false,
             canExecuteAi: false,
           },
-        }),
+        })
       );
 
       store.commit(
@@ -262,50 +270,56 @@ describe.skip("End-to-End Execution Flow", () => {
           cellId,
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       store.commit(
         events.executionAssigned({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          runtimeSessionId: sessionId,
+        })
       );
 
       store.commit(
         events.executionStarted({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          cellId,
+          runtimeSessionId: sessionId,
+          startedAt: new Date(),
+        })
       );
 
       // Add error output
       store.commit(
-        events.cellOutputAdded({
+        events.errorOutputAdded({
           id: "error-output",
           cellId,
-          outputType: "error",
-          data: {
-            ename: "ValueError",
-            evalue: "Test error",
-            traceback: [
-              "Traceback (most recent call last):",
-              '  File "<stdin>", line 1, in <module>',
-              "ValueError: Test error",
-            ],
+          content: {
+            type: "inline",
+            data: {
+              ename: "ValueError",
+              evalue: "Test error",
+              traceback: [
+                "Traceback (most recent call last):",
+                '  File "<stdin>", line 1, in <module>',
+                "ValueError: Test error",
+              ],
+            },
           },
           position: 0,
-        }),
+        })
       );
 
       // Complete with error status
       store.commit(
         events.executionCompleted({
           queueId,
+          cellId,
           status: "error",
           error: "ValueError: Test error",
-        }),
+          completedAt: new Date(),
+          executionDurationMs: 75,
+        })
       );
 
       // Verify error handling
@@ -314,7 +328,8 @@ describe.skip("End-to-End Execution Flow", () => {
 
       const outputs = store.query(tables.outputs.select());
       expect(outputs[0].outputType).toBe("error");
-      expect(outputs[0].data.ename).toBe("ValueError");
+      const errorData = JSON.parse(outputs[0].data);
+      expect(errorData.ename).toBe("ValueError");
     });
 
     it("should handle multiple concurrent executions", async () => {
@@ -331,7 +346,7 @@ describe.skip("End-to-End Execution Flow", () => {
           id: storeId,
           title: "Concurrent Test Notebook",
           ownerId: "test-user",
-        }),
+        })
       );
 
       // Create multiple cells
@@ -342,7 +357,7 @@ describe.skip("End-to-End Execution Flow", () => {
             cellType: "code",
             position: index,
             createdBy: "test-user",
-          }),
+          })
         );
 
         store.commit(
@@ -350,28 +365,28 @@ describe.skip("End-to-End Execution Flow", () => {
             id: cellId,
             source: `print("Output from cell ${index}")`,
             modifiedBy: "test-user",
-          }),
+          })
         );
       });
 
-      // Start multiple kernel sessions
+      // Start multiple runtime sessions
       const sessions = Array.from({ length: 2 }, (_, i) => ({
         sessionId: `${sessionId}-${i}`,
-        kernelId: `${kernelId}-${i}`,
+        runtimeId: `${runtimeId}-${i}`,
       }));
 
-      sessions.forEach(({ sessionId: sid, kernelId: kid }) => {
+      sessions.forEach(({ sessionId: sid, runtimeId: rid }) => {
         store.commit(
-          events.kernelSessionStarted({
+          events.runtimeSessionStarted({
             sessionId: sid,
-            kernelId: kid,
-            kernelType: "python3",
+            runtimeId: rid,
+            runtimeType: "python3",
             capabilities: {
               canExecuteCode: true,
               canExecuteSql: false,
               canExecuteAi: false,
             },
-          }),
+          })
         );
       });
 
@@ -383,48 +398,55 @@ describe.skip("End-to-End Execution Flow", () => {
             cellId,
             executionCount: 1,
             requestedBy: "test-user",
-            priority: index + 1,
-          }),
+          })
         );
       });
 
       // Assign executions to different sessions
-      cells.forEach(({ queueId }, index) => {
+      cells.forEach(({ queueId, cellId }, index) => {
         const sessionIndex = index % sessions.length;
         const { sessionId: sid } = sessions[sessionIndex];
 
         store.commit(
           events.executionAssigned({
             queueId,
-            kernelSessionId: sid,
-          }),
+            runtimeSessionId: sid,
+          })
         );
 
         store.commit(
           events.executionStarted({
             queueId,
-            kernelSessionId: sid,
-          }),
+            cellId,
+            runtimeSessionId: sid,
+            startedAt: new Date(),
+          })
         );
       });
 
       // Complete all executions
       cells.forEach(({ cellId, queueId, outputId }, index) => {
         store.commit(
-          events.cellOutputAdded({
+          events.terminalOutputAdded({
             id: outputId,
             cellId,
-            outputType: "stream",
-            data: { name: "stdout", text: `Output from cell ${index}\n` },
+            content: {
+              type: "inline",
+              data: `Output from cell ${index}\n`,
+            },
+            streamName: "stdout",
             position: 0,
-          }),
+          })
         );
 
         store.commit(
           events.executionCompleted({
             queueId,
+            cellId,
             status: "success",
-          }),
+            completedAt: new Date(),
+            executionDurationMs: 120,
+          })
         );
       });
 
@@ -436,7 +458,7 @@ describe.skip("End-to-End Execution Flow", () => {
       const outputs = store.query(tables.outputs.select());
       expect(outputs).toHaveLength(numCells);
       outputs.forEach((output, index) => {
-        expect(output.data.text).toBe(`Output from cell ${index}\n`);
+        expect(output.data).toBe(`Output from cell ${index}\n`);
       });
     });
   });
@@ -456,7 +478,7 @@ describe.skip("End-to-End Execution Flow", () => {
 
       const queueQuery$ = queryDb(
         tables.executionQueue.select().where({ status: "pending" }),
-        { label: "pendingQueue" },
+        { label: "pendingQueue" }
       );
 
       const outputsQuery$ = queryDb(tables.outputs.select(), {
@@ -486,7 +508,7 @@ describe.skip("End-to-End Execution Flow", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -495,18 +517,20 @@ describe.skip("End-to-End Execution Flow", () => {
           cellId,
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       store.commit(
-        events.cellOutputAdded({
+        events.terminalOutputAdded({
           id: "reactive-output",
           cellId,
-          outputType: "stream",
-          data: "Test output",
+          content: {
+            type: "inline",
+            data: "Test output",
+          },
+          streamName: "stdout",
           position: 0,
-        }),
+        })
       );
 
       // Wait for updates to propagate
@@ -514,7 +538,7 @@ describe.skip("End-to-End Execution Flow", () => {
         () =>
           updateCounts.cells > 0 &&
           updateCounts.queue > 0 &&
-          updateCounts.outputs > 0,
+          updateCounts.outputs > 0
       );
 
       expect(updateCounts.cells).toBeGreaterThan(0);
@@ -532,7 +556,7 @@ describe.skip("End-to-End Execution Flow", () => {
       // Note: With strict typing, we simulate runtime errors differently
       const problematicQuery$ = queryDb(
         tables.cells.select().where({ id: "non-existent-cell-id" }),
-        { label: "problematicQuery" },
+        { label: "problematicQuery" }
       );
 
       // This should handle the error gracefully
@@ -577,8 +601,8 @@ describe.skip("End-to-End Execution Flow", () => {
               cellType: "code",
               position: i,
               createdBy: "test-user",
-            }),
-          ),
+            })
+          )
         );
 
         if (i % 2 === 0) {
@@ -586,8 +610,8 @@ describe.skip("End-to-End Execution Flow", () => {
             store.commit(
               events.cellDeleted({
                 id: cellId,
-              }),
-            ),
+              })
+            )
           );
         }
       }
@@ -603,7 +627,7 @@ describe.skip("End-to-End Execution Flow", () => {
       // Verify updates are in chronological order
       for (let i = 1; i < allUpdates.length; i++) {
         expect(allUpdates[i].timestamp).toBeGreaterThanOrEqual(
-          allUpdates[i - 1].timestamp,
+          allUpdates[i - 1].timestamp
         );
       }
 
@@ -611,8 +635,8 @@ describe.skip("End-to-End Execution Flow", () => {
     });
   });
 
-  describe("Kernel Session Lifecycle", () => {
-    it("should handle kernel restart during execution", async () => {
+  describe("Runtime Session Lifecycle", () => {
+    it("should handle runtime restart during execution", async () => {
       const cellId = "restart-test-cell";
       const queueId = "restart-test-queue";
       const newSessionId = `${sessionId}-restarted`;
@@ -624,20 +648,20 @@ describe.skip("End-to-End Execution Flow", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
-        events.kernelSessionStarted({
+        events.runtimeSessionStarted({
           sessionId,
-          kernelId,
-          kernelType: "python3",
+          runtimeId,
+          runtimeType: "python3",
           capabilities: {
             canExecuteCode: true,
             canExecuteSql: false,
             canExecuteAi: false,
           },
-        }),
+        })
       );
 
       store.commit(
@@ -646,48 +670,57 @@ describe.skip("End-to-End Execution Flow", () => {
           cellId,
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       store.commit(
         events.executionAssigned({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          runtimeSessionId: sessionId,
+        })
       );
 
       store.commit(
         events.executionStarted({
           queueId,
-          kernelSessionId: sessionId,
-        }),
+          cellId,
+          runtimeSessionId: sessionId,
+          startedAt: new Date(),
+        })
       );
 
-      // Simulate kernel restart during execution
+      // Simulate runtime restart during execution
       store.commit(
-        events.kernelSessionTerminated({
+        events.runtimeSessionTerminated({
           sessionId,
           reason: "restart",
-        }),
+        })
       );
 
-      // Start new kernel session
+      // Start new runtime session
       store.commit(
-        events.kernelSessionStarted({
+        events.runtimeSessionStarted({
           sessionId: newSessionId,
-          kernelId,
-          kernelType: "python3",
+          runtimeId,
+          runtimeType: "python3",
           capabilities: {
             canExecuteCode: true,
             canExecuteSql: false,
             canExecuteAi: false,
           },
-        }),
+        })
       );
 
-      // Verify kernel states
-      const sessions = store.query(tables.kernelSessions.select());
+      // Update session status to ready
+      store.commit(
+        events.runtimeSessionStatusChanged({
+          sessionId: newSessionId,
+          status: "ready",
+        })
+      );
+
+      // Verify runtime states
+      const sessions = store.query(tables.runtimeSessions.select());
       expect(sessions).toHaveLength(2);
 
       const oldSession = sessions.find((s) => s.sessionId === sessionId);
@@ -695,22 +728,22 @@ describe.skip("End-to-End Execution Flow", () => {
 
       expect(oldSession.status).toBe("terminated");
       expect(oldSession.isActive).toBe(false);
-      expect(newSession.status).toBe("starting");
+      expect(newSession.status).toBe("ready");
       expect(newSession.isActive).toBe(true);
     });
 
-    it("should track heartbeats and session health", async () => {
+    it("should track status and session health", async () => {
       store.commit(
-        events.kernelSessionStarted({
+        events.runtimeSessionStarted({
           sessionId,
-          kernelId,
-          kernelType: "python3",
+          runtimeId,
+          runtimeType: "python3",
           capabilities: {
             canExecuteCode: true,
             canExecuteSql: false,
             canExecuteAi: false,
           },
-        }),
+        })
       );
 
       const heartbeatTimes: Date[] = [];
@@ -721,17 +754,15 @@ describe.skip("End-to-End Execution Flow", () => {
         heartbeatTimes.push(heartbeatTime);
 
         store.commit(
-          (events as any).kernelSessionHeartbeat({
+          events.runtimeSessionStatusChanged({
             sessionId,
-            status: i % 2 === 0 ? "ready" : "busy",
-          }),
+            status: i % 2 === 1 ? "ready" : "busy",
+          })
         );
       }
 
-      const session = store.query(tables.kernelSessions.select())[0];
-      expect(session.lastHeartbeat).toEqual(
-        heartbeatTimes[heartbeatTimes.length - 1],
-      );
+      const session = store.query(tables.runtimeSessions.select())[0];
+      expect(session.status).toBeDefined();
       expect(session.status).toBe("busy"); // Last heartbeat status
     });
   });
@@ -749,7 +780,7 @@ describe.skip("End-to-End Execution Flow", () => {
           cellType: "code",
           position: 0,
           createdBy: "test-user",
-        }),
+        })
       );
 
       store.commit(
@@ -758,24 +789,26 @@ describe.skip("End-to-End Execution Flow", () => {
           cellId,
           executionCount: 1,
           requestedBy: "test-user",
-          priority: 1,
-        }),
+        })
       );
 
       store.commit(
-        events.cellOutputAdded({
+        events.terminalOutputAdded({
           id: outputId,
           cellId,
-          outputType: "stream",
-          data: "Test output",
+          content: {
+            type: "inline",
+            data: "Test output",
+          },
+          streamName: "stdout",
           position: 0,
-        }),
+        })
       );
 
       // Verify relationships
       const cell = store.query(tables.cells.select().where({ id: cellId }))[0];
       const queueEntry = store.query(
-        tables.executionQueue.select().where({ cellId }),
+        tables.executionQueue.select().where({ cellId })
       )[0];
       const output = store.query(tables.outputs.select().where({ cellId }))[0];
 
@@ -787,18 +820,18 @@ describe.skip("End-to-End Execution Flow", () => {
       store.commit(
         events.cellDeleted({
           id: cellId,
-        }),
+        })
       );
 
       // Outputs should still exist (they're not automatically cleaned up)
       const outputsAfterDelete = store.query(
-        tables.outputs.select().where({ cellId }),
+        tables.outputs.select().where({ cellId })
       );
       expect(outputsAfterDelete).toHaveLength(1);
 
       // But cell should be marked as deleted
       const cellAfterDelete = store.query(
-        tables.cells.select().where({ id: cellId }),
+        tables.cells.select().where({ id: cellId })
       )[0];
     });
 
@@ -813,7 +846,7 @@ describe.skip("End-to-End Execution Flow", () => {
             cellType: "code",
             position: 0,
             createdBy: "test-user",
-          }),
+          })
         );
 
         // Verify cell was created
